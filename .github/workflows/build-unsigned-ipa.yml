@@ -1,0 +1,48 @@
+name: Build Statale Open (unsigned IPA)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '**'
+      - '.github/workflows/build-unsigned-ipa.yml'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installa XcodeGen e genera il progetto
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Archive senza firma
+        run: |
+          xcodebuild archive \
+            -project StataleOpen.xcodeproj \
+            -scheme StataleOpen \
+            -configuration Release \
+            -archivePath "${{ runner.temp }}/StataleOpen.xcarchive" \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO > build.log 2>&1 || { grep -E "error:|warning: .*nearly matches" build.log | sort -u; tail -n 40 build.log; exit 1; }
+          grep -E "warning: .*nearly matches" build.log | sort -u || true
+
+      - name: Impacchetta l'ipa
+        run: |
+          mkdir -p "${{ runner.temp }}/Payload"
+          cp -r "${{ runner.temp }}/StataleOpen.xcarchive/Products/Applications/StataleOpen.app" "${{ runner.temp }}/Payload/"
+          cd "${{ runner.temp }}"
+          zip -r StataleOpen-unsigned.ipa Payload
+
+      - name: Carica l'ipa come artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StataleOpen-unsigned
+          path: ${{ runner.temp }}/StataleOpen-unsigned.ipa
