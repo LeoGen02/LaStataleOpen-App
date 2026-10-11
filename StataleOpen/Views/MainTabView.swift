@@ -45,6 +45,10 @@ struct HomeView: View {
                             .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 4)
+                } footer: {
+                    if let last = data.lastUpdated {
+                        Text("Aggiornato \(last.formatted(.relative(presentation: .named)))")
+                    }
                 }
 
                 if let message = data.errorMessage ?? session.notice {

@@ -45,6 +45,13 @@ enum DeadlineNotifier {
         }
     }
 
+    /// Numero di avvisi non letti sull'icona dell'app.
+    static func updateBadge(_ count: Int) async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        guard settings.badgeSetting == .enabled else { return }
+        try? await UNUserNotificationCenter.current().setBadgeCount(isEnabled ? count : 0)
+    }
+
     /// Registra gli avvisi già visti; con `post` notifica quelli nuovi (usato dall'aggiornamento in background).
     static func notifyNew(_ notifications: [PopupNotification], post: Bool) async {
         let defaults = UserDefaults.standard
@@ -82,6 +89,7 @@ enum BackgroundRefresher {
         }
         if let response = try? await client.notifications(userID: info.userid) {
             await DeadlineNotifier.notifyNew(response.notifications, post: true)
+            await DeadlineNotifier.updateBadge(response.unreadcount ?? response.notifications.filter { !$0.read }.count)
         }
     }
 }

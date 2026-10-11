@@ -79,6 +79,7 @@ final class SessionStore: ObservableObject {
         UserDefaults.standard.set(false, forKey: Self.webOnlyKey)
         await WKWebsiteDataStore.default().removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        try? await UNUserNotificationCenter.current().setBadgeCount(0)
         phase = .loggedOut
     }
 
@@ -107,6 +108,7 @@ final class SessionStore: ObservableObject {
         KeychainStore.set(nil, for: .token)
         KeychainStore.set(nil, for: .privateToken)
         UserDefaults.standard.removeObject(forKey: Self.siteInfoKey)
+        PortalCache.clear()
         client = nil
         siteInfo = nil
         lastAutologin = nil
@@ -136,6 +138,17 @@ final class PortalData: ObservableObject {
     @Published var errorMessage: String?
     @Published var lastUpdated: Date?
 
+    /// All'avvio mostra subito gli ultimi dati scaricati (utile anche offline), poi aggiorna dal portale.
+    init() {
+        if let cached = PortalCache.load() {
+            courses = cached.courses
+            events = cached.events
+            notifications = cached.notifications
+            unreadCount = cached.notifications.filter { !$0.read }.count
+            lastUpdated = cached.savedAt
+        }
+    }
+
     func refreshAll(using session: SessionStore) async {
         guard let client = session.client, let userID = session.siteInfo?.userid else { return }
         isLoading = true
@@ -155,6 +168,7 @@ final class PortalData: ObservableObject {
         }
         await refreshNotifications(using: session)
         lastUpdated = Date()
+        PortalCache.save(courses: courses, events: events, notifications: notifications)
     }
 
     func refreshNotifications(using session: SessionStore) async {
@@ -163,6 +177,7 @@ final class PortalData: ObservableObject {
         notifications = response.notifications
         unreadCount = response.unreadcount ?? response.notifications.filter { !$0.read }.count
         await DeadlineNotifier.notifyNew(response.notifications, post: false)
+        await DeadlineNotifier.updateBadge(unreadCount)
     }
 
     func markRead(_ notification: PopupNotification, using session: SessionStore) async {
@@ -186,5 +201,34 @@ final class PortalData: ObservableObject {
         }
         errorMessage = error.localizedDescription
         return false
+    }
+}
+
+/// Copia locale degli ultimi dati scaricati, nella cartella Caches dell'app.
+enum PortalCache {
+    struct Snapshot: Codable {
+        let courses: [Course]
+        let events: [CalendarEvent]
+        let notifications: [PopupNotification]
+        let savedAt: Date
+    }
+
+    private static var fileURL: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("portal-cache.json")
+    }
+
+    static func load() -> Snapshot? {
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        return try? JSONDecoder().decode(Snapshot.self, from: data)
+    }
+
+    static func save(courses: [Course], events: [CalendarEvent], notifications: [PopupNotification]) {
+        let snapshot = Snapshot(courses: courses, events: events, notifications: notifications, savedAt: Date())
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        try? data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+
+    static func clear() {
+        try? FileManager.default.removeItem(at: fileURL)
     }
 }

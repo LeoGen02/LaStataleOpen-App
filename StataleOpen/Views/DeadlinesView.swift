@@ -15,6 +15,21 @@ struct DeadlinesView: View {
                         description: Text("Qui compaiono quiz, consegne ed e-tivity con una data di scadenza.")
                     )
                 }
+                if !overdue.isEmpty {
+                    Section {
+                        ForEach(overdue) { event in
+                            Button {
+                                if let url = event.targetURL { webTarget = WebTarget(url: url, title: event.name.htmlStripped) }
+                            } label: {
+                                EventRow(event: event)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } header: {
+                        Label("Scadute di recente", systemImage: "exclamationmark.circle")
+                            .foregroundStyle(.red)
+                    }
+                }
                 ForEach(days, id: \.self) { day in
                     Section {
                         ForEach(groups[day] ?? []) { event in
@@ -26,7 +41,7 @@ struct DeadlinesView: View {
                             .buttonStyle(.plain)
                         }
                     } header: {
-                        Text(day, format: .dateTime.weekday(.wide).day().month(.wide))
+                        Text(dayTitle(day))
                     }
                 }
             }
@@ -45,11 +60,26 @@ struct DeadlinesView: View {
         }
     }
 
+    private var startOfToday: Date { Calendar.current.startOfDay(for: Date()) }
+
+    /// Attività dei giorni passati ancora da completare (il portale restituisce le ultime due settimane).
+    private var overdue: [CalendarEvent] {
+        data.events.filter { $0.date < startOfToday }
+    }
+
     private var groups: [Date: [CalendarEvent]] {
-        Dictionary(grouping: data.events) { Calendar.current.startOfDay(for: $0.date) }
+        Dictionary(grouping: data.events.filter { $0.date >= startOfToday }) { Calendar.current.startOfDay(for: $0.date) }
     }
 
     private var days: [Date] { groups.keys.sorted() }
+
+    private func dayTitle(_ day: Date) -> String {
+        let calendar = Calendar.current
+        let full = day.formatted(.dateTime.weekday(.wide).day().month(.wide))
+        if calendar.isDateInToday(day) { return "Oggi · \(full)" }
+        if calendar.isDateInTomorrow(day) { return "Domani · \(full)" }
+        return full
+    }
 }
 
 struct NotificationsView: View {

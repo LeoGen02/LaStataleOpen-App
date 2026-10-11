@@ -3,9 +3,15 @@ name: Build Statale Open (unsigned IPA)
 on:
   workflow_dispatch:
   push:
-    paths:
-      - '**'
-      - '.github/workflows/build-unsigned-ipa.yml'
+    paths-ignore:
+      - 'README.md'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-ipa-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -29,6 +35,7 @@ jobs:
             -configuration Release \
             -archivePath "${{ runner.temp }}/StataleOpen.xcarchive" \
             -destination "generic/platform=iOS" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO > build.log 2>&1 || { grep -E "error:|warning: .*nearly matches" build.log | sort -u; tail -n 40 build.log; exit 1; }
@@ -39,10 +46,24 @@ jobs:
           mkdir -p "${{ runner.temp }}/Payload"
           cp -r "${{ runner.temp }}/StataleOpen.xcarchive/Products/Applications/StataleOpen.app" "${{ runner.temp }}/Payload/"
           cd "${{ runner.temp }}"
-          zip -r StataleOpen-unsigned.ipa Payload
+          zip -qr StataleOpen.ipa Payload
 
       - name: Carica l'ipa come artifact
         uses: actions/upload-artifact@v4
         with:
           name: StataleOpen-unsigned
-          path: ${{ runner.temp }}/StataleOpen-unsigned.ipa
+          path: ${{ runner.temp }}/StataleOpen.ipa
+
+      # Release "ultima-versione": l'ipa si scarica direttamente, senza zip,
+      # da https://github.com/<utente>/<repo>/releases/latest/download/StataleOpen.ipa
+      - name: Pubblica la release con l'ipa
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${{ runner.temp }}/Payload/StataleOpen.app/Info.plist")
+          gh release delete ultima-versione --cleanup-tag --yes || true
+          gh release create ultima-versione "${{ runner.temp }}/StataleOpen.ipa" \
+            --target "${{ github.sha }}" \
+            --title "Statale Open ${VERSION} (build ${{ github.run_number }})" \
+            --notes "IPA non firmato generato da \`${{ github.ref_name }}\` (${GITHUB_SHA::7}). Installalo con Sideloadly o AltStore." \
+            --latest

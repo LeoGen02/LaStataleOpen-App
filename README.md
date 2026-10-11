@@ -32,18 +32,27 @@ upload di file e foto per le consegne, video inline, PDF e download visualizzati
 ## Struttura
 
 ```
-project.yml                     spec XcodeGen (Info.plist, background fetch, URL scheme)
+project.yml                     spec XcodeGen (Info.plist, versione, icona, background fetch, URL scheme)
 StataleOpen/
   App/       entry point, SiteConfig (URL del portale, categoria SecAI = 2)
   Models/    modelli JSON dei web service Moodle + classificazione lezioni/esercizi/e-tivity
   Services/  MoodleClient, SessionStore/PortalData, Keychain, notifiche, autofill login
   Views/     login, schede, dettaglio corso, browser interno
+  Resources/ Assets.xcassets (icona, colore)
 .github/workflows/build-unsigned-ipa.yml
 ```
 
-## Build e installazione
+## Novità 1.1
 
-1. GitHub → **Actions** → *Build Statale Open (unsigned IPA)* (parte anche a ogni push) → scarica l'artifact `StataleOpen-unsigned`.
+- **Icona** e colore dell'app.
+- **Dati offline**: corsi, scadenze e avvisi restano visibili all'apertura anche senza rete (si aggiornano appena il portale risponde).
+- **Badge** sull'icona con il numero di avvisi non letti.
+- **Scadenze** con sezione *Scadute di recente* e giorni etichettati *Oggi* / *Domani*; in Home l'ora dell'ultimo aggiornamento.
+
+## Scarica e installa
+
+1. Scarica l'ipa già compilato: **[StataleOpen.ipa](https://github.com/LeoGen02/LaStataleOpen-App/releases/latest/download/StataleOpen.ipa)**
+   (pagina *Releases* → *ultima-versione*; viene ripubblicato a ogni push. In alternativa: Actions → artifact `StataleOpen-unsigned`).
 2. Sideloadly: trascina l'`.ipa`, Apple ID gratuito, Start.
 3. iPhone: Impostazioni → Generali → VPN e gestione dispositivo → Autorizza. Con ID gratuito l'app va rifirmata ogni 7 giorni.
 
