@@ -9,18 +9,17 @@ on:
 permissions:
   contents: write
 
+# Un solo build alla volta su tutto il repository: la release "ultima-versione" è unica
+# e due run paralleli (es. branch e main) si contenderebbero il tag.
 concurrency:
-  group: build-ipa-${{ github.ref }}
-  cancel-in-progress: true
+  group: build-ipa
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: macos-latest
-    defaults:
-      run:
-        working-directory: .
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Installa XcodeGen e genera il progetto
         run: |
@@ -38,18 +37,36 @@ jobs:
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO > build.log 2>&1 || { grep -E "error:|warning: .*nearly matches" build.log | sort -u; tail -n 40 build.log; exit 1; }
-          grep -E "warning: .*nearly matches" build.log | sort -u || true
+            CODE_SIGNING_ALLOWED=NO > build.log 2>&1 || { grep -E "error:" build.log | sort -u; tail -n 40 build.log; exit 1; }
 
-      - name: Impacchetta l'ipa
+      - name: Avvisi del compilatore
         run: |
+          WARNINGS=$(grep -E "^/.*: warning: " build.log | sed "s|$GITHUB_WORKSPACE/||" | sort -u || true)
+          if [ -n "$WARNINGS" ]; then
+            echo "$WARNINGS"
+            echo "$WARNINGS" | head -n 20 | while IFS= read -r line; do echo "::warning::$line"; done
+          else
+            echo "Nessun avviso."
+          fi
+
+      - name: Impacchetta e verifica l'ipa
+        run: |
+          APP="${{ runner.temp }}/Payload/StataleOpen.app"
           mkdir -p "${{ runner.temp }}/Payload"
-          cp -r "${{ runner.temp }}/StataleOpen.xcarchive/Products/Applications/StataleOpen.app" "${{ runner.temp }}/Payload/"
+          cp -r "${{ runner.temp }}/StataleOpen.xcarchive/Products/Applications/StataleOpen.app" "$APP"
+          # Controlli di coerenza prima di pubblicare: eseguibile, icona compilata, versione, lingua.
+          test -x "$APP/StataleOpen"
+          test -f "$APP/Assets.car"
+          for key in CFBundleIdentifier CFBundleShortVersionString CFBundleVersion CFBundleDevelopmentRegion MinimumOSVersion CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName; do
+            echo "$key = $(/usr/libexec/PlistBuddy -c "Print :$key" "$APP/Info.plist")"
+          done
+          /usr/libexec/PlistBuddy -c "Print :BGTaskSchedulerPermittedIdentifiers" "$APP/Info.plist"
           cd "${{ runner.temp }}"
           zip -qr StataleOpen.ipa Payload
+          ls -lh StataleOpen.ipa
 
       - name: Carica l'ipa come artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: StataleOpen-unsigned
           path: ${{ runner.temp }}/StataleOpen.ipa

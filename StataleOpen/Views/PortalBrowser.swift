@@ -104,11 +104,12 @@ struct PortalBrowser: View {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button {
-                    if let url = model.currentURL ?? resolvedURL { UIApplication.shared.open(url) }
+                    // target.url e non resolvedURL: quest'ultimo può contenere la chiave di autologin.
+                    UIApplication.shared.open((model.currentURL ?? target.url).sanitizedForSharing)
                 } label: {
                     Label("Apri in Safari", systemImage: "safari")
                 }
-                if let url = model.currentURL {
+                if let url = model.currentURL?.sanitizedForSharing {
                     ShareLink(item: url) { Label("Condividi link", systemImage: "square.and.arrow.up") }
                     Button {
                         UIPasteboard.general.url = url

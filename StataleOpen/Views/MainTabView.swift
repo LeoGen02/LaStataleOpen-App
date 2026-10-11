@@ -22,7 +22,9 @@ struct MainTabView: View {
         .environmentObject(data)
         .task { await data.refreshAll(using: session) }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active, let last = data.lastUpdated, Date().timeIntervalSince(last) > 5 * 60 {
+            // Al ritorno in primo piano aggiorna se i dati hanno più di 5 minuti (o non sono mai arrivati).
+            guard phase == .active else { return }
+            if data.lastUpdated.map({ Date().timeIntervalSince($0) > 5 * 60 }) ?? true {
                 Task { await data.refreshAll(using: session) }
             }
         }
@@ -59,7 +61,8 @@ struct HomeView: View {
                 }
 
                 Section("Prossime scadenze") {
-                    let upcoming = data.events.filter { $0.date > Date().addingTimeInterval(-86_400) }.prefix(5)
+                    // Da inizio giornata, come nella scheda Scadenze (i giorni precedenti stanno in "Scadute di recente").
+                    let upcoming = data.events.filter { $0.date >= Calendar.current.startOfDay(for: Date()) }.prefix(5)
                     if upcoming.isEmpty {
                         Text(data.isLoading ? "Caricamento…" : "Nessuna scadenza imminente 🎉")
                             .foregroundStyle(.secondary)

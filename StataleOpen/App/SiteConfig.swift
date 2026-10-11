@@ -95,4 +95,15 @@ extension URL {
         }
         return components.url ?? self
     }
+
+    /// Indirizzo da aprire in Safari, condividere o copiare: senza il token dei web service
+    /// (che darebbe accesso all'account) e con il percorso dei file valido via cookie.
+    var sanitizedForSharing: URL {
+        guard var components = URLComponents(url: self, resolvingAgainstBaseURL: false),
+              let items = components.queryItems, items.contains(where: { $0.name == "token" }) else { return self }
+        let remaining = items.filter { $0.name != "token" }
+        components.queryItems = remaining.isEmpty ? nil : remaining
+        components.path = components.path.replacingOccurrences(of: "/webservice/pluginfile.php", with: "/pluginfile.php")
+        return components.url ?? self
+    }
 }

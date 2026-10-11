@@ -206,7 +206,7 @@ struct LoginWebView: UIViewRepresentable {
             guard !finished, let url = webView.url, let host = url.host?.lowercased() else { return }
 
             if CredentialAutofill.isLoginPage(url) {
-                parent.status = "Inserisci le credenziali di Ateneo"
+                parent.status = CredentialAutofill.hasCredentials ? "Compilo le credenziali salvate…" : "Inserisci le credenziali di Ateneo"
                 let submit = CredentialAutofill.autoLoginEnabled && !autoSubmitted
                 CredentialAutofill.run(in: webView, submit: submit) { [weak self] submitted in
                     if submitted {
@@ -248,17 +248,28 @@ struct LoginWebView: UIViewRepresentable {
         }
 
         private func handleTokenURL(_ url: URL) {
+            // La pagina di Moodle può aprire il link due volte (onload + nostro click): vale solo il primo.
+            guard !finished else { return }
             let string = url.absoluteString
             guard let range = string.range(of: "token=") else { return fail() }
-            var encoded = String(string[range.upperBound...]).removingPercentEncoding ?? ""
-            encoded = encoded.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            while encoded.count % 4 != 0 { encoded += "=" }
-            guard let data = Data(base64Encoded: encoded), let decoded = String(data: data, encoding: .utf8) else { return fail() }
+            let raw = (String(string[range.upperBound...]).removingPercentEncoding ?? "")
+                .trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+            // "/" fa parte dell'alfabeto base64: lo togliamo in coda solo se così com'è non si decodifica.
+            guard let decoded = Self.decodeBase64(raw) ?? Self.decodeBase64(raw.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) else {
+                return fail()
+            }
             // Formato: firma:::token[:::tokenPrivato]
             let parts = decoded.components(separatedBy: ":::")
             guard parts.count >= 2, !parts[1].isEmpty else { return fail() }
             finished = true
-            parent.onToken(parts[1], parts.count > 2 ? parts[2] : nil)
+            parent.onToken(parts[1], parts.count > 2 && !parts[2].isEmpty ? parts[2] : nil)
+        }
+
+        private static func decodeBase64(_ string: String) -> String? {
+            var padded = string
+            while padded.count % 4 != 0 { padded += "=" }
+            guard let data = Data(base64Encoded: padded), let text = String(data: data, encoding: .utf8), text.contains(":::") else { return nil }
+            return text
         }
 
         private func fail() {

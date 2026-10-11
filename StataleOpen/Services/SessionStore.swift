@@ -150,14 +150,17 @@ final class PortalData: ObservableObject {
     }
 
     func refreshAll(using session: SessionStore) async {
-        guard let client = session.client, let userID = session.siteInfo?.userid else { return }
+        guard !isLoading, let client = session.client, let userID = session.siteInfo?.userid else { return }
         isLoading = true
         defer { isLoading = false }
 
+        // Se il portale non risponde restano i dati della copia locale, con la loro data.
+        var reachedPortal = false
         do {
             courses = try await client.userCourses(userID: userID)
                 .sorted { ($0.lastaccess ?? 0) > ($1.lastaccess ?? 0) }
             errorMessage = nil
+            reachedPortal = true
         } catch {
             if handle(error, session: session) { return }
         }
@@ -165,10 +168,13 @@ final class PortalData: ObservableObject {
         if let fetched = try? await client.upcomingEvents() {
             events = fetched.sorted { $0.date < $1.date }
             await DeadlineNotifier.schedule(for: fetched)
+            reachedPortal = true
         }
         await refreshNotifications(using: session)
-        lastUpdated = Date()
-        PortalCache.save(courses: courses, events: events, notifications: notifications)
+        if reachedPortal {
+            lastUpdated = Date()
+            saveCache()
+        }
     }
 
     func refreshNotifications(using session: SessionStore) async {
@@ -178,6 +184,12 @@ final class PortalData: ObservableObject {
         unreadCount = response.unreadcount ?? response.notifications.filter { !$0.read }.count
         await DeadlineNotifier.notifyNew(response.notifications, post: false)
         await DeadlineNotifier.updateBadge(unreadCount)
+        saveCache()
+    }
+
+    private func saveCache() {
+        guard let lastUpdated else { return }
+        PortalCache.save(PortalCache.Snapshot(courses: courses, events: events, notifications: notifications, savedAt: lastUpdated))
     }
 
     func markRead(_ notification: PopupNotification, using session: SessionStore) async {
@@ -210,6 +222,7 @@ enum PortalCache {
         let courses: [Course]
         let events: [CalendarEvent]
         let notifications: [PopupNotification]
+        /// Momento dell'ultimo aggiornamento riuscito dal portale.
         let savedAt: Date
     }
 
@@ -222,8 +235,7 @@ enum PortalCache {
         return try? JSONDecoder().decode(Snapshot.self, from: data)
     }
 
-    static func save(courses: [Course], events: [CalendarEvent], notifications: [PopupNotification]) {
-        let snapshot = Snapshot(courses: courses, events: events, notifications: notifications, savedAt: Date())
+    static func save(_ snapshot: Snapshot) {
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         try? data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }

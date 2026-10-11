@@ -48,11 +48,14 @@ StataleOpen/
 - **Dati offline**: corsi, scadenze e avvisi restano visibili all'apertura anche senza rete (si aggiornano appena il portale risponde).
 - **Badge** sull'icona con il numero di avvisi non letti.
 - **Scadenze** con sezione *Scadute di recente* e giorni etichettati *Oggi* / *Domani*; in Home l'ora dell'ultimo aggiornamento.
+- Date, giorni e testi di sistema in **italiano** anche se l'iPhone è in un'altra lingua.
+- *Apri in Safari*, *Condividi* e *Copia link* non includono mai il token di accesso dell'app.
+- Disattivando i promemoria vengono cancellati subito anche quelli già programmati.
 
 ## Scarica e installa
 
 1. Scarica l'ipa già compilato: **[StataleOpen.ipa](https://github.com/LeoGen02/LaStataleOpen-App/releases/latest/download/StataleOpen.ipa)**
-   (pagina *Releases* → *ultima-versione*; viene ripubblicato a ogni push. In alternativa: Actions → artifact `StataleOpen-unsigned`).
+   (pagina *Releases* → *ultima-versione*; viene ricompilato e ripubblicato a ogni push, dopo aver verificato icona, versione e Info.plist. In alternativa: Actions → artifact `StataleOpen-unsigned`).
 2. Sideloadly: trascina l'`.ipa`, Apple ID gratuito, Start.
 3. iPhone: Impostazioni → Generali → VPN e gestione dispositivo → Autorizza. Con ID gratuito l'app va rifirmata ogni 7 giorni.
 

@@ -73,13 +73,19 @@ struct CredentialsSection: View {
 }
 
 struct RemindersSection: View {
+    @EnvironmentObject private var data: PortalData
     @AppStorage(DeadlineNotifier.enabledKey) private var reminders = true
 
     var body: some View {
         Section {
             Toggle("Promemoria scadenze e nuovi avvisi", isOn: $reminders)
                 .onChange(of: reminders) {
-                    if reminders { Task { await DeadlineNotifier.requestAuthorization() } }
+                    // Applica subito la scelta: riprogramma o cancella i promemoria già in coda e aggiorna il badge.
+                    Task {
+                        if reminders { await DeadlineNotifier.requestAuthorization() }
+                        await DeadlineNotifier.schedule(for: data.events)
+                        await DeadlineNotifier.updateBadge(data.unreadCount)
+                    }
                 }
             Button("Invia notifica di prova") {
                 Task {

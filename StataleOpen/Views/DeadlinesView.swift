@@ -18,12 +18,7 @@ struct DeadlinesView: View {
                 if !overdue.isEmpty {
                     Section {
                         ForEach(overdue) { event in
-                            Button {
-                                if let url = event.targetURL { webTarget = WebTarget(url: url, title: event.name.htmlStripped) }
-                            } label: {
-                                EventRow(event: event)
-                            }
-                            .buttonStyle(.plain)
+                            eventButton(event)
                         }
                     } header: {
                         Label("Scadute di recente", systemImage: "exclamationmark.circle")
@@ -33,12 +28,7 @@ struct DeadlinesView: View {
                 ForEach(days, id: \.self) { day in
                     Section {
                         ForEach(groups[day] ?? []) { event in
-                            Button {
-                                if let url = event.targetURL { webTarget = WebTarget(url: url, title: event.name.htmlStripped) }
-                            } label: {
-                                EventRow(event: event)
-                            }
-                            .buttonStyle(.plain)
+                            eventButton(event)
                         }
                     } header: {
                         Text(dayTitle(day))
@@ -58,6 +48,15 @@ struct DeadlinesView: View {
             }
             .portalBrowser($webTarget, session: session)
         }
+    }
+
+    private func eventButton(_ event: CalendarEvent) -> some View {
+        Button {
+            if let url = event.targetURL { webTarget = WebTarget(url: url, title: event.name.htmlStripped) }
+        } label: {
+            EventRow(event: event)
+        }
+        .buttonStyle(.plain)
     }
 
     private var startOfToday: Date { Calendar.current.startOfDay(for: Date()) }
