@@ -1,0 +1,36 @@
+name: StataleOpen
+options:
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  StataleOpen:
+    type: application
+    platform: iOS
+    sources:
+      - StataleOpen
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: "Statale Open"
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIBackgroundModes:
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - it.leonardo.stataleopen.refresh
+        CFBundleURLTypes:
+          - CFBundleURLName: it.leonardo.stataleopen
+            CFBundleURLSchemes:
+              - stataleopen
+        NSCameraUsageDescription: "Serve per allegare foto o video alle consegne delle e-tivity."
+        NSPhotoLibraryUsageDescription: "Serve per allegare immagini alle consegne delle e-tivity."
+        NSMicrophoneUsageDescription: "Serve per registrare audio o video da allegare alle consegne."
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: it.leonardo.stataleopen
+      TARGETED_DEVICE_FAMILY: "1"
+      SWIFT_VERSION: "5.0"
