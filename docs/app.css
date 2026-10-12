@@ -237,5 +237,6 @@ select.pick { font: inherit; font-size: 15px; color: var(--accent); background: 
 .diag.ok { color: var(--green); }
 .diag.bad { color: var(--red); }
 .btn-secondary { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px; border-radius: 12px; background: var(--fill); color: var(--accent); font-weight: 600; }
+.btn-secondary svg { width: 20px; height: 20px; }
 .launch { display: flex; flex-direction: column; gap: 14px; padding: 24px 16px; align-items: stretch; }
 .launch p { margin: 0; color: var(--fg2); line-height: 1.45; font-size: 15px; }

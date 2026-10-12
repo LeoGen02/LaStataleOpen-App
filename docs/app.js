@@ -21,7 +21,8 @@
     offline: "Sembra che tu non sia connesso a Internet.",
     network: "Il portale non ha risposto. Se sei connesso, il portale potrebbe non accettare richieste da un'app web: prova con la chiave dell'app o usa la modalità web.",
     expired: "La sessione è scaduta: accedi di nuovo.",
-    unreachable: "Portale non raggiungibile: dati non aggiornati."
+    unreachable: "Portale non raggiungibile: dati non aggiornati.",
+    disabled: "I servizi per le app sono disattivati sul portale: corsi, scadenze e avvisi non si possono leggere da un'app. Usa la modalità web, che apre le pagine del portale."
   };
 
   // ---------- Icone (tratto, 24×24) ----------
@@ -134,6 +135,7 @@
     var json;
     try { json = await response.json(); } catch (e) { throw wsError("Formato di risposta inatteso (token).", "decoding"); }
     if (json.token) return { token: json.token, privatetoken: json.privatetoken || null };
+    if (json.errorcode === "enablewsdescription") throw wsError(MSG.disabled, "disabled");
     if (json.errorcode === "invalidlogin") {
       throw wsError("Il portale non accetta queste credenziali dall'app. Se sul sito entri con il login di Ateneo, usa la chiave dell'app oppure la modalità web.", "invalidlogin");
     }
@@ -146,7 +148,8 @@
       var response = await fetch(BASE + "login/token.php?appsitecheck=1", { cache: "no-store" });
       var json = await response.json();
       if (json && json.appsitecheck === "ok") return { ok: true, text: "Il portale risponde a questa app web e ha i servizi per app attivi: puoi accedere." };
-      return { ok: false, text: "Il portale risponde ma i servizi per app non sono attivi: usa la modalità web." };
+      if (json && json.errorcode === "enablewsdescription") return { ok: false, text: MSG.disabled };
+      return { ok: false, text: "Il portale ha risposto: " + ((json && (json.error || json.errorcode)) || "risposta inattesa") + ". Usa la modalità web." };
     } catch (e) {
       return { ok: false, text: navigator.onLine === false ? MSG.offline : "Il portale non risponde a questa app web (rete assente o richieste bloccate dal browser). Usa la modalità web." };
     }
@@ -478,7 +481,7 @@
   }
   function loginFailed(e) {
     S.client = null; S.login.busy = false;
-    if (e.code === "network" || e.code === "invalidlogin") { S.login.error = e.message; render(); return; }
+    if (e.code === "network" || e.code === "invalidlogin" || e.code === "disabled") { S.login.error = e.message; render(); return; }
     S.login.error = null; render();
     // LoginFlowView: "Accesso non riuscito"
     showAlert("Accesso non riuscito", e.message, [
