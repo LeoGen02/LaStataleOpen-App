@@ -15,6 +15,14 @@ Non ha server propri, non contiene pubblicità né strumenti di analisi e non ra
 
 Niente di tutto questo viene inviato agli sviluppatori o a terzi, e nulla finisce nel repository GitHub.
 
+## App web
+
+Nell'app web gli stessi dati restano nell'archivio del browser (localStorage) di quel dispositivo:
+la chiave dell'app, l'email se la salvi, le impostazioni e la copia di corsi, scadenze e avvisi.
+**La password non viene mai salvata**: serve solo a chiedere la chiave al portale, una volta.
+La pagina è un sito statico su GitHub Pages: non ha un server proprio e non riceve i tuoi dati,
+che viaggiano direttamente tra il browser e il portale dell'Ateneo.
+
 ## Con chi parla l'app
 
 - `lastataleopen.myariel.unimi.it` ed `elearning.unimi.it` — il portale e il login dell'Ateneo, come il sito nel browser.
@@ -30,6 +38,7 @@ Niente di tutto questo viene inviato agli sviluppatori o a terzi, e nulla finisc
 ## Come cancellare tutto
 
 *Altro → Esci* cancella token, cookie e dati salvati del portale; *Altro → Rimuovi credenziali* cancella email e password.
-Eliminando l'app iOS rimuove anche il resto.
+Eliminando l'app iOS rimuove anche il resto. Nell'app web *Esci* cancella chiave e dati salvati; cancellando i dati del sito
+nelle impostazioni del browser sparisce tutto.
 
 Per domande apri una [issue](https://github.com/LeoGen02/LaStataleOpen-App/issues/new/choose).

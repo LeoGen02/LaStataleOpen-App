@@ -7,14 +7,12 @@ on:
     branches: ['**']
     paths-ignore:
       - '**.md'
-      - 'docs/**'
       - 'LICENSE'
       - '.github/ISSUE_TEMPLATE/**'
       - '.github/pull_request_template.md'
   pull_request:
     paths-ignore:
       - '**.md'
-      - 'docs/**'
       - 'LICENSE'
       - '.github/ISSUE_TEMPLATE/**'
       - '.github/pull_request_template.md'
@@ -32,3 +30,29 @@ jobs:
     uses: ./.github/workflows/_test.yml
   build:
     uses: ./.github/workflows/_build.yml
+  web:
+    name: App web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Versione allineata all'app iPhone
+        run: |
+          IOS=$(sed -nE 's/^ *MARKETING_VERSION: *"?([^"]+)"?.*$/\1/p' project.yml | head -n 1)
+          WEB=$(sed -nE 's/.*APP = \{ version: "([^"]+)".*/\1/p' docs/app.js | head -n 1)
+          echo "iPhone $IOS · web $WEB"
+          [ "$IOS" = "$WEB" ] || { echo "::error::Versione dell'app web ($WEB) diversa da MARKETING_VERSION ($IOS): aggiorna docs/app.js"; exit 1; }
+          grep -q "statale-open-v$IOS\"" docs/sw.js || { echo "::error::Aggiorna CACHE in docs/sw.js a statale-open-v$IOS"; exit 1; }
+
+      - name: Test della logica
+        run: node --test scripts/web/*.test.js
+
+      - name: Prova nel browser con il portale simulato
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+          node scripts/web/e2e.js

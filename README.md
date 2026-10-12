@@ -9,7 +9,21 @@ corsi con lezioni, esercizi ed e-tivity, scadenze con promemoria, avvisi del por
 > Le credenziali restano sul tuo iPhone; l'app comunica solo con i server dell'Ateneo e con GitHub per controllare gli aggiornamenti
 > ([privacy](PRIVACY.md)).
 
-## Scarica
+## App web (senza installare nulla)
+
+**[leogen02.github.io/LaStataleOpen-App](https://leogen02.github.io/LaStataleOpen-App/)** — la stessa app, dal browser del telefono o del computer.
+Si collega al portale con gli stessi servizi Moodle dell'app iPhone; in Safari *Condividi → Aggiungi alla schermata Home* la apre a tutto schermo con la sua icona.
+
+- **Accesso** con email e password di Ateneo (come l'app Moodle ufficiale) oppure con la *chiave dell'app* presa da *Preferenze → Chiavi di sicurezza* del portale.
+  Se il portale non accetta nessuno dei due, la *modalità web* apre direttamente le sue pagine. *Verifica il collegamento* dice subito quale strada funziona.
+- **Differenze dall'app iPhone**, dovute al browser: le pagine del portale si aprono in una nuova scheda invece che nel browser interno;
+  la password non viene salvata (niente Portachiavi); i promemoria si aggiungono al Calendario con un file `.ics` (stessi avvisi 24 h e 2 h prima)
+  perché un sito non può notificare ad app chiusa.
+- **Dati di esempio**: *Prova con i dati di esempio* mostra tutte le funzioni senza account.
+
+L'app web sta in `docs/` ed è pubblicata con GitHub Pages (vedi [CONTRIBUTING](CONTRIBUTING.md#app-web)).
+
+## Scarica l'app iPhone
 
 **[⬇︎ StataleOpen.ipa — ultima versione](https://github.com/LeoGen02/LaStataleOpen-App/releases/latest/download/StataleOpen.ipa)**
 · [tutte le versioni e le novità](https://github.com/LeoGen02/LaStataleOpen-App/releases)
@@ -82,11 +96,13 @@ StataleOpen/
   Views/               login, schede, dettaglio corso, scelta del percorso, browser interno
   Resources/           Assets.xcassets (icona, colore), PrivacyInfo.xcprivacy
 StataleOpenTests/      test unitari (classificazione, HTML, link, token, promemoria, versioni)
-scripts/               selezione del simulatore, note di rilascio, sorgente AltStore
+docs/                  app web (index.html, app.js, core.js, app.css, service worker, manifest) e guida all'installazione
+scripts/               selezione del simulatore, note di rilascio, sorgente AltStore, test e build dell'app web
 .github/workflows/     ci.yml (test + build a ogni push/PR), release.yml (pubblicazione), _test.yml, _build.yml
 ```
 
-- **CI**: a ogni push e pull request girano i test su simulatore e la build dell'ipa, che resta tra gli artifact del run.
+- **CI**: a ogni push e pull request girano i test su simulatore e la build dell'ipa (che resta tra gli artifact del run),
+  più i test dell'app web e una prova completa nel browser con il portale simulato.
 - **Release**: *Actions → Release → Run workflow* con la versione (es. `1.3.0`), oppure una release con tag `v1.3.0` creata dal sito.
   Il workflow testa, compila, verifica l'ipa e pubblica `StataleOpen.ipa`, la copia con versione e la sorgente AltStore,
   con le note prese da [CHANGELOG.md](CHANGELOG.md).

@@ -15,4 +15,6 @@ la correzione verrà pubblicata in una nuova versione e indicata nel [CHANGELOG]
 - Credenziali e token stanno nel Portachiavi di iOS (`AfterFirstUnlockThisDeviceOnly`): non vengono sincronizzati né copiati nei backup su altri dispositivi.
 - Le richieste al portale usano solo HTTPS.
 - I link condivisi o aperti in Safari non contengono mai il token dei web service.
+- Nell'app web la chiave dell'app sta nell'archivio del browser e la password non viene mai salvata; il sito non ha un server
+  proprio e non usa librerie esterne.
 - Le build di GitHub Actions non usano segreti: chiunque può verificare che l'ipa nasce da questo codice confrontando l'SHA-256 indicato in ogni release.

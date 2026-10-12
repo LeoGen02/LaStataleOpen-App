@@ -8,6 +8,12 @@ e la descrizione dell'aggiornamento in AltStore e SideStore.
 
 ## [Non rilasciato]
 
+### Aggiunto
+- **App web** (`docs/`, pubblicata con GitHub Pages): stesse schermate e stessa logica dell'app iPhone, collegata al portale
+  con gli stessi web service. Accesso con email e password o con la chiave dell'app, verifica del collegamento, modalità web,
+  dati di esempio, copia offline, scadenze nel Calendario (`.ics` con avvisi 24 h e 2 h prima), installabile sulla schermata Home.
+- Test dell'app web: logica condivisa (`node --test`) e prova completa nel browser con il portale simulato, anche nella CI.
+
 ## [1.2.0] - 2026-10-12
 
 ### Aggiunto
