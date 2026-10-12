@@ -487,6 +487,7 @@ async function setup(context) {
     await expectText(auto, "Aggiorna dal portale");
     await auto.waitForTimeout(2000);
     if (!auto.url().startsWith(APP) || portalPosts() !== posts) throw new Error("ha riprovato da solo dopo un giro fallito");
+    await expectText(auto, "in pausa");
   });
 
   await check(auto, "ritorno automatico spento: dati dagli appunti, nessun falso avviso, «Incolla» visibile", async () => {

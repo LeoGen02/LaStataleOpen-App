@@ -788,6 +788,11 @@
   }
   // Un aggiornamento automatico partito da poco non è tornato con i dati: l'estensione non è attiva o il portale non ha risposto.
   function autoVerified() { var a = readJSON(KEYS.ponteAuto, null); return !!(a && a.ok); }
+  // «Aggiorna da solo all'apertura» è in pausa: l'ultimo giro automatico non è tornato e da solo non si riprova.
+  function autoPaused() {
+    var p = readJSON(KEYS.ponteReq, null), last = readJSON(KEYS.ponteLast, null);
+    return !!(S.autoSync && p && p.auto && (!last || last.at < p.at) && Date.now() - p.at >= C.PONTE.autoTTL);
+  }
   function autoStuck() {
     var p = pendingRequest(), last = readJSON(KEYS.ponteLast, null);
     return !!(p && p.auto && p.ret === "frag" && Date.now() - p.at < C.PONTE.autoTTL && (!last || last.at < p.at) && !S.ponte.incoming);
@@ -844,7 +849,10 @@
       if (S.ponte.starting) return;
       S.ponte.starting = true;
       armAuto(r.text).then(function (ok) {
-        if (ok) { writeJSON(KEYS.ponteReq, r.pending); location.assign(url); return; }
+        if (ok) {
+          writeJSON(KEYS.ponteReq, r.pending);
+          try { location.assign(url); return; } catch (e) { /* navigazione rifiutata: si riprova a mano */ }
+        }
         S.ponte.starting = false;
         S.sync = { copied: false, manual: false, note: "Il ponte automatico non ha risposto: controlla in Safari che l'estensione Userscripts sia attiva e consentita su questa pagina, poi riprova. Intanto puoi usare il preferito (istruzioni in Altro → Ponte con il portale)." };
         render();
@@ -1340,6 +1348,7 @@
           (autoVerified() ? "Il portale potrebbe non aver risposto o l'accesso non si è concluso: riprova." : "Controlla che in Safari l'estensione Userscripts sia consentita anche su lastataleopen.myariel.unimi.it (menu della pagina → Userscripts), poi riprova.") +
           "</span></span></div>" +
         '<button class="cell accent-row" data-a="ponte-setup">' + ic("link") + '<span class="t">Istruzioni e preferito di riserva</span></button>' : "") +
+      (!stuck && autoPaused() ? '<div class="cell notice">' + ic("warn") + "<span>Aggiornamento automatico all'apertura in pausa: l'ultimo giro non è tornato con i dati. Tocca «Aggiorna dal portale» per riprovare.</span></div>" : "") +
       (awaitingPaste() ? '<button class="cell accent-row" data-a="sync-paste">' + ic("copy") + '<span class="cell-main"><span class="t">Incolla i dati copiati dal portale</span></span></button>' : "") +
       '<button class="cell accent-row" data-a="sync-now">' + ic("refresh") + '<span class="cell-main"><span class="t">Aggiorna dal portale</span><span class="s' + (age === "fresh" ? "" : " orange") + '">' + esc(sub) + "</span>" +
       (auto ? '<span class="s">' + (S.autoReturn ? "Ponte automatico: un tocco, torna da solo con i dati" : "Ponte automatico: un tocco, poi «Copia per l'app» (ritorno automatico spento)") + "</span>" : "") +
