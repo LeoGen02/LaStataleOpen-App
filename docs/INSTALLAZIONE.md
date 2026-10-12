@@ -19,7 +19,12 @@ il ponte legge i dati da solo e l'app si riapre aggiornata. Niente preferito, ni
    Poi, dallo stesso menu → **Userscripts**, consenti **sempre** l'accesso: a tutti i siti web, oppure sia sulla pagina dell'app
    sia su una pagina di La Statale Open (`lastataleopen.myariel.unimi.it`). Non scegliere «per un giorno»: scadrebbe.
 3. Nell'app tocca **Collega con il ponte** (o *Altro → Ponte con il portale*) → **Apri lo script del ponte automatico**.
-   Nella pagina che si apre: menu della pagina → **Userscripts** → **Install** (la finestra dell'estensione è in inglese).
+   Si apre il **testo** dello script: è normale, l'installazione non parte da sola. Su quella pagina tocca l'icona del menu
+   nella barra degli indirizzi (aA) → **Userscripts** (se Safari chiede il permesso, consenti sempre). In alto nella finestra
+   di Userscripts compare **Tap to install**: toccalo, poi **Install** (la finestra dell'estensione è in inglese).
+   Se *Userscripts* non è nel menu, tocca **Gestisci estensioni** e attivala. Se *Tap to install* non compare, nell'app tocca
+   **Scarica il file**, poi in *File → Download* tieni premuto `statale-open-1.user.js` → **Sposta** → *Sul mio iPhone → Userscripts*
+   e apri una volta il menu di Userscripts in Safari.
 4. Torna all'app e ricarica la pagina: compare **Ponte automatico installato**. Tocca *Home → Aggiorna dal portale*:
    al primo giro riuscito diventa **attivo**. Se resti sul portale senza tornare, manca il permesso sul portale (passaggio 2).
    Se la sessione del portale è scaduta, accedi con il login di Ateneo: subito dopo il ponte riparte e torna all'app.

@@ -516,6 +516,10 @@ async function setup(context) {
     await expectText(page, "Ponte automatico");
     const t = await page.locator("#device").innerText();
     if (/attivo ✓/.test(t)) throw new Error("ponte automatico segnato come attivo senza estensione");
+    const [download] = await Promise.all([page.waitForEvent("download"), page.click('[data-a="userscript-download"]')]);
+    if (download.suggestedFilename() !== "statale-open-1.user.js") throw new Error("nome del file: " + download.suggestedFilename());
+    const text = fs.readFileSync(await download.path(), "utf8");
+    if (text !== USERSCRIPT) throw new Error("il file scaricato non è lo script pubblicato");
   });
 
   console.log("\n" + passed + " controlli superati" + (errors.length ? ", " + errors.length + " problemi:\n" + errors.join("\n") : ", nessun problema."));

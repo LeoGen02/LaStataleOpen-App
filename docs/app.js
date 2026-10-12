@@ -775,6 +775,20 @@
     if (S.ponte.from === "app" && (PB.snap || loadSnap())) { S.phase = "app"; applyBridge(); savePhase(); render(); return; }
     S.mode = null; S.phase = "login"; removeKey(KEYS.phase); render();
   }
+  // Riserva all'installazione dal menu di Userscripts: il file da mettere nella cartella degli script (app File).
+  function downloadUserscript() {
+    fetch(appBase() + C.PONTE.userscript, { cache: "no-store" }).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.text();
+    }).then(function (text) {
+      var url = URL.createObjectURL(new Blob([text], { type: "text/javascript;charset=utf-8" }));
+      var a = document.createElement("a");
+      a.href = url; a.download = C.PONTE.userscript.split("/").pop();
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+      toast("Scaricato: in File → Download spostalo nella cartella Userscripts, poi ricarica questa pagina");
+    }).catch(function () { toast("Download non riuscito: controlla la connessione e riprova"); });
+  }
   function openSync() { S.sync = { copied: false, manual: false, note: null }; render(); }
   // Il percorso scelto non è tra quelli letti, o la lettura ha più di 14 giorni: il ponte rilegge le pagine dei percorsi.
   function needsTree() {
@@ -1399,9 +1413,11 @@
           "<li>Installa dall'App Store l'app gratuita <b>Userscripts</b> e aprila una volta.</li>" +
           "<li>In Safari tocca il pulsante a sinistra della barra degli indirizzi (menu della pagina) → <b>Gestisci estensioni</b> e attiva <b>Userscripts</b>. " +
             "Poi, dallo stesso menu → <b>Userscripts</b>, consenti sempre l'accesso: scegli tutti i siti web, oppure fallo sia qui sia su una pagina di La Statale Open (lastataleopen.myariel.unimi.it). Non scegliere «per un giorno».</li>" +
-          "<li>Tocca <b>Apri lo script del ponte automatico</b> qui sotto; nella pagina che si apre: menu della pagina → <b>Userscripts</b> → <b>Install</b> (la finestra dell'estensione è in inglese).</li>" +
+          "<li>Tocca <b>Apri lo script del ponte automatico</b> qui sotto: si apre il testo dello script, ed è normale. Su quella pagina tocca l'icona del menu nella barra degli indirizzi (aA) → <b>Userscripts</b> (se Safari chiede il permesso, consenti sempre). In alto nella finestra di Userscripts compare <b>Tap to install</b>: toccalo, poi <b>Install</b>.</li>" +
           "<li>Torna qui e ricarica la pagina: compare <b>Ponte automatico installato</b>; dopo il primo aggiornamento riuscito diventa <b>attivo</b>.</li></ol></div>" +
-          '<a class="cell accent-row" href="' + esc(appBase() + C.PONTE.userscript) + '" target="_blank" rel="noopener">' + ic("down") + '<span class="t">Apri lo script del ponte automatico</span></a>'),
+          '<a class="cell accent-row" href="' + esc(appBase() + C.PONTE.userscript) + '" target="_blank" rel="noopener">' + ic("down") + '<span class="t">Apri lo script del ponte automatico</span></a>' +
+          '<button class="cell accent-row" data-a="userscript-download">' + ic("tray") + '<span class="cell-main"><span class="t">Non compare «Tap to install»? Scarica il file</span>' +
+          '<span class="s">Poi in File → Download tieni premuto il file → Sposta → Sul mio iPhone → Userscripts, e apri una volta il menu di Userscripts in Safari.</span></span></button>'),
       (auto ? "" : "Lo script fa partire il ponte solo per le richieste che l'app gli consegna, con lo stesso file e la stessa impronta del preferito. Se preferisci non installare nulla, usa il preferito qui sotto. ") +
         "Icona sulla schermata Home: in Safari tocca Condividi → Aggiungi alla schermata Home e spegni «Apri come app web» (iOS 26). L'icona apre l'app in Safari, dove il ponte automatico funziona; come in Safari, i dati restano se apri l'app almeno una volta ogni 7 giorni. " +
         "Un'icona aperta come app web ha un archivio suo: passando all'icona di Safari serve un aggiornamento, e le modifiche ancora da inviare vanno inviate prima dalla vecchia icona.");
@@ -1931,6 +1947,7 @@
       case "ponte-setup": startPonteSetup(S.phase === "app" ? "app" : "login"); break;
       case "ponte-back": leavePonteSetup(); break;
       case "ponte-bookmark": S.ponte.bookmark = true; render(); break;
+      case "userscript-download": downloadUserscript(); break;
       case "ponte-copy-code":
         copyTextOk(C.bookmarklet(appBase())).then(function (ok) {
           S.ponte.copied = ok; render();
