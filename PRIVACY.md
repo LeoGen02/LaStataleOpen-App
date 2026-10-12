@@ -35,9 +35,10 @@ che viaggiano direttamente tra il browser e il portale dell'Ateneo.
 - L'app li salva nell'archivio del browser, insieme alle modifiche non ancora inviate. *Esci* cancella tutto; il preferito resta in Safari
   finché non lo elimini.
 - GitHub vede solo lo scaricamento anonimo del file del ponte (senza indirizzo di provenienza).
-- **Ponte automatico** (facoltativo, estensione Userscripts): lo script sull'app segnala soltanto di essere installato; sul portale
-  si attiva solo con la richiesta dell'app. Se devi ancora accedere, tiene la richiesta (solo numeri, niente titoli) nell'archivio
-  dell'estensione per al massimo 10 minuti, poi la cancella. Non legge pagine, cookie o password e non fa richieste di rete.
+- **Ponte automatico** (facoltativo, estensione Userscripts): sull'app lo script segnala di essere installato e, a ogni «Aggiorna dal portale»,
+  registra nell'archivio dell'estensione la richiesta dell'app (solo identificativi numerici, niente titoli), valida 10 minuti e usata una volta:
+  la cancella quando la usa, quando la trova scaduta o quando arriva la successiva. Sul portale legge soltanto l'utente della pagina
+  (`M.cfg.userId`, per sapere se sei entrato). Non legge cookie, password o contenuti e non fa richieste di rete.
 
 ## Con chi parla l'app
 

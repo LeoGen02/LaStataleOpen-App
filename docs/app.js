@@ -96,9 +96,10 @@
   // Archivio locale: impostazioni, sessione e copia dei dati (come Portachiavi, UserDefaults e PortalCache).
   var KEYS = {
     session: "so.session", phase: "so.phase", settings: "so.settings", update: "so.update", demo: "so.demo", toggles: "so.demo.toggles",
-    ponteSnap: "so.ponte.snap", ponteBox: "so.ponte.outbox", ponteReq: "so.ponte.req", ponteLast: "so.ponte.last", ponteFail: "so.ponte.fail"
+    ponteSnap: "so.ponte.snap", ponteBox: "so.ponte.outbox", ponteReq: "so.ponte.req", ponteLast: "so.ponte.last", ponteFail: "so.ponte.fail",
+    ponteAuto: "so.ponte.auto"
   };
-  var PONTE_KEYS = [KEYS.ponteSnap, KEYS.ponteBox, KEYS.ponteReq, KEYS.ponteLast, KEYS.ponteFail];
+  var PONTE_KEYS = [KEYS.ponteSnap, KEYS.ponteBox, KEYS.ponteReq, KEYS.ponteLast, KEYS.ponteFail, KEYS.ponteAuto];
   function readJSON(key, fallback) { try { var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; } }
   function writeJSON(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* archivio non disponibile */ } }
   function removeKey(key) { try { localStorage.removeItem(key); } catch (e) { /* archivio non disponibile */ } }
@@ -521,8 +522,9 @@
     var incoming = EMBEDDED ? null : takeIncoming();
     S.ponte.incoming = !!incoming;
     await restoreSession();
-    if (incoming) importText(incoming, "frag");
-    else maybeAutoSync();
+    if (incoming) await importText(incoming, "frag");
+    S.ponte.incoming = false;
+    if (!incoming) maybeAutoSync();
   }
   async function restoreSession() {
     var saved = readJSON(KEYS.phase, null);
@@ -785,12 +787,14 @@
     return !EMBEDDED && !isStandalone() && document.documentElement.getAttribute("data-statale-open-auto") === "1";
   }
   // Un aggiornamento automatico partito da poco non è tornato con i dati: l'estensione non è attiva o il portale non ha risposto.
+  function autoVerified() { var a = readJSON(KEYS.ponteAuto, null); return !!(a && a.ok); }
   function autoStuck() {
     var p = pendingRequest(), last = readJSON(KEYS.ponteLast, null);
-    return !!(p && p.auto && Date.now() - p.at < C.PONTE.autoTTL && (!last || last.at < p.at) && !S.ponte.incoming);
+    return !!(p && p.auto && p.ret === "frag" && Date.now() - p.at < C.PONTE.autoTTL && (!last || last.at < p.at) && !S.ponte.incoming);
   }
   // Un tocco su «Aggiorna dal portale»: con il ponte automatico si parte subito, altrimenti si aprono i passaggi.
   function syncNow() {
+    if (S.ponte.starting) return;
     if (autoBridge()) startSync({ auto: true });
     else openSync();
   }
@@ -798,22 +802,57 @@
   // Mai subito dopo un ritorno dal portale o un tentativo recente, così non può ripartire in cerchio.
   function maybeAutoSync() {
     if (!S.autoSync || S.mode !== "bridge" || S.phase !== "app" || !PB.snap || !autoBridge()) return;
-    if (S.ponte.incoming || importing || S.alert || S.sync || S.ctx || document.visibilityState !== "visible") return;
+    if (S.ponte.incoming || S.ponte.starting || importing || S.alert || S.sync || S.ctx || document.visibilityState !== "visible") return;
     if (Date.now() - PB.snap.at < C.PONTE.autoAfter) return;
-    var p = readJSON(KEYS.ponteReq, null);
+    var p = readJSON(KEYS.ponteReq, null), last = readJSON(KEYS.ponteLast, null);
     if (p && Date.now() - p.at < C.PONTE.autoTTL) return;
+    // L'ultimo giro automatico non è tornato: niente nuovi tentativi da soli finché non riesce un aggiornamento.
+    if (p && p.auto && (!last || last.at < p.at)) return;
+    if (!S.autoReturn) return;
     var nav = window.performance && performance.getEntriesByType ? performance.getEntriesByType("navigation")[0] : null;
     if (nav && nav.type === "back_forward") return;
     toast("Dati di " + C.relative(PB.snap.at).replace(/^tra /, "") + ": aggiorno dal portale…");
     startSync({ auto: true });
   }
+  // Il ponte automatico parte solo per una richiesta che l'app gli consegna qui, sulla propria pagina: lo script la registra
+  // nel suo archivio (che gli altri siti non possono scrivere) e conferma. Un link al portale costruito da altri non lo avvia.
+  function armAuto(text) {
+    return new Promise(function (resolve) {
+      var root = document.documentElement, done = false, timer = null;
+      function finish() {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        document.removeEventListener("statale-open-armed", finish);
+        resolve(root.getAttribute("data-statale-open-armed") === text);
+      }
+      root.removeAttribute("data-statale-open-armed");
+      root.setAttribute("data-statale-open-request", text);
+      document.addEventListener("statale-open-armed", finish);
+      timer = setTimeout(finish, 2500);
+      try { document.dispatchEvent(new CustomEvent("statale-open-request")); } catch (e) { finish(); }
+    });
+  }
   function startSync(opts) {
     var auto = !!(opts && opts.auto), standalone = isStandalone();
-    var r = C.buildRequest(readBox(), { ret: !auto && (standalone || !S.autoReturn) ? "clip" : "frag", tree: needsTree() ? S.program.id : null });
+    // Con «Ritorno automatico» spento i dati tornano dagli appunti anche con il ponte automatico (niente dati nell'indirizzo).
+    var r = C.buildRequest(readBox(), { ret: standalone || !S.autoReturn ? "clip" : "frag", tree: needsTree() ? S.program.id : null });
     r.pending.auto = auto;
-    writeJSON(KEYS.ponteReq, r.pending);
     var url = C.requestURL(r.text, auto ? "auto" : "bookmark");
-    if (auto || !standalone) { location.assign(url); return; }
+    if (auto) {
+      // Un aggiornamento alla volta: il secondo segnale dell'estensione o un doppio tocco non ne avviano un altro.
+      if (S.ponte.starting) return;
+      S.ponte.starting = true;
+      armAuto(r.text).then(function (ok) {
+        if (ok) { writeJSON(KEYS.ponteReq, r.pending); location.assign(url); return; }
+        S.ponte.starting = false;
+        S.sync = { copied: false, manual: false, note: "Il ponte automatico non ha risposto: controlla in Safari che l'estensione Userscripts sia attiva e consentita su questa pagina, poi riprova. Intanto puoi usare il preferito (istruzioni in Altro → Ponte con il portale)." };
+        render();
+      });
+      return;
+    }
+    writeJSON(KEYS.ponteReq, r.pending);
+    if (!standalone) { location.assign(url); return; }
     // Dalla schermata Home il preferito di Safari non è raggiungibile: l'indirizzo passa dagli appunti.
     copyTextOk(url).then(function (ok) {
       if (!S.sync) S.sync = {};
@@ -897,7 +936,10 @@
     writeBox(rec.box);
     if (rec.failed.length) writeJSON(KEYS.ponteFail, readJSON(KEYS.ponteFail, []).concat(rec.failed).slice(-20));
     writeJSON(KEYS.ponteLast, { sid: snap.sid, at: Date.now() });
-    if (rec.matched) removeKey(KEYS.ponteReq);
+    if (rec.matched) {
+      if (pending && pending.auto) writeJSON(KEYS.ponteAuto, { ok: Date.now() });
+      removeKey(KEYS.ponteReq);
+    }
     S.ponte.notes = rec.notes;
     // Primo collegamento (o ritorno da demo, portale, modalità web): si passa ai dati del ponte.
     if (S.mode !== "bridge" || S.phase !== "app") {
@@ -1294,11 +1336,14 @@
     var n = C.pendingOps(readBox()).length, age = C.staleness(PB.snap.at);
     var sub = "Dati letti " + C.relative(PB.snap.at) + (n ? " · " + n + (n === 1 ? " modifica da inviare" : " modifiche da inviare") : "");
     var auto = autoBridge(), stuck = autoStuck();
-    var rows = (stuck ? '<div class="cell notice">' + ic("warn") + '<span class="cell-main"><span>L\'aggiornamento automatico non è tornato con i dati. Se sei rimasto sul portale, controlla che l\'estensione Userscripts sia attiva per lastataleopen.myariel.unimi.it, oppure tocca il preferito «Statale Open».</span></span></div>' +
-        '<button class="cell accent-row" data-a="sync">' + ic("link") + '<span class="t">Aggiorna con il preferito</span></button>' : "") +
-      (!stuck && awaitingPaste() ? '<button class="cell accent-row" data-a="sync-paste">' + ic("copy") + '<span class="cell-main"><span class="t">Incolla i dati copiati dal portale</span></span></button>' : "") +
+    var rows = (stuck ? '<div class="cell notice">' + ic("warn") + '<span class="cell-main"><span>L\'aggiornamento automatico non è tornato con i dati. ' +
+          (autoVerified() ? "Il portale potrebbe non aver risposto o l'accesso non si è concluso: riprova." : "Controlla che in Safari l'estensione Userscripts sia consentita anche su lastataleopen.myariel.unimi.it (menu della pagina → Userscripts), poi riprova.") +
+          "</span></span></div>" +
+        '<button class="cell accent-row" data-a="ponte-setup">' + ic("link") + '<span class="t">Istruzioni e preferito di riserva</span></button>' : "") +
+      (awaitingPaste() ? '<button class="cell accent-row" data-a="sync-paste">' + ic("copy") + '<span class="cell-main"><span class="t">Incolla i dati copiati dal portale</span></span></button>' : "") +
       '<button class="cell accent-row" data-a="sync-now">' + ic("refresh") + '<span class="cell-main"><span class="t">Aggiorna dal portale</span><span class="s' + (age === "fresh" ? "" : " orange") + '">' + esc(sub) + "</span>" +
-      (auto ? '<span class="s">Ponte automatico: un tocco, torna da solo con i dati</span>' : "") + "</span>" + ic("chevR", ' class="chev"') + "</button>" +
+      (auto ? '<span class="s">' + (S.autoReturn ? "Ponte automatico: un tocco, torna da solo con i dati" : "Ponte automatico: un tocco, poi «Copia per l'app» (ritorno automatico spento)") + "</span>" : "") +
+      "</span>" + ic("chevR", ' class="chev"') + "</button>" +
       (age === "old" ? '<div class="cell notice">' + ic("warn") + "<span>Dati del portale letti " + esc(C.relative(PB.snap.at)) + ": aggiorna dal portale per vedere scadenze e avvisi nuovi.</span></div>" : "") +
       S.ponte.notes.map(function (t) { return '<div class="cell notice">' + ic("warn") + "<span>" + esc(t) + "</span></div>"; }).join("") +
       failureCells();
@@ -1308,8 +1353,8 @@
     var ops = C.pendingOps(readBox());
     var rows = labeled("Dati del portale", PB.snap ? "letti " + C.relative(PB.snap.at) : "non ancora letti") +
       labeled("Ponte", "versione " + (PB.snap ? PB.snap.bv : C.PONTE.version) + (isStandalone() ? " · schermata Home" : " · Safari")) +
-      labeled("Ponte automatico", autoBridge() ? "attivo ✓" : isStandalone() ? "solo in Safari" : "non installato") +
-      (autoBridge() ? switchRow("Aggiorna da solo all'apertura", "autoSync") : "") +
+      labeled("Ponte automatico", autoBridge() ? (autoVerified() ? "attivo ✓" : "installato · da provare") : isStandalone() ? "solo in Safari" : "non installato") +
+      (autoBridge() && S.autoReturn ? switchRow("Aggiorna da solo all'apertura", "autoSync") : "") +
       '<button class="cell accent-row" data-a="sync-now">' + ic("refresh") + '<span class="t">Aggiorna dal portale</span></button>' +
       ops.map(function (op) {
         return '<div class="cell"><span class="cell-main"><span class="t">' + esc(opLabel(op)) + '</span><span class="s">Da inviare al portale' +
@@ -1324,7 +1369,7 @@
       "Il ponte legge corsi, scadenze e avvisi solo quando tocchi il preferito «Statale Open» o, con il ponte automatico, quando tocchi «Aggiorna dal portale». " +
       (autoBridge() ? "Con «Aggiorna da solo all'apertura» l'app va al portale e torna quando la apri con dati più vecchi di un'ora. " : "") +
       "Il preferito esegue solo il file con impronta " + esc(C.PONTE.sri.slice(0, 19)) + "…: se il file cambiasse, il browser lo rifiuterebbe." +
-      (isStandalone() ? "" : " Con il ritorno automatico i dati tornano all'app nell'indirizzo della scheda (Safari può tenerli nella cronologia); spento, passano dagli appunti."));
+      (isStandalone() ? "" : " Con il ritorno automatico i dati tornano all'app nell'indirizzo della scheda (Safari può tenerli nella cronologia); spento, passano dagli appunti, anche con il ponte automatico."));
   }
 
   // Schermata di installazione del preferito.
@@ -1333,22 +1378,28 @@
     var touch = /iPhone|iPad|iPod|Android/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
     function steps(list) { return '<div class="cell"><ol class="steps">' + list.map(function (t) { return "<li>" + t + "</li>"; }).join("") + "</ol></div>"; }
     var auto = autoBridge();
+    var verified = autoVerified();
     var autoGroup = group("Ponte automatico · un tocco per aggiornare",
-      (auto ? '<div class="cell"><span class="ic" style="color:var(--green)">' + checkFilled() + '</span><span class="cell-main"><span class="t b">Ponte automatico attivo</span>' +
-          '<span class="s">«Aggiorna dal portale» apre il portale, legge i dati e torna qui da solo. Il preferito non serve più.</span></span></div>'
-        : (standalone ? '<div class="cell notice">' + ic("warn") + "<span>Aperta come app web dalla schermata Home, l'app non vede le estensioni di Safari. Per l'aggiornamento con un tocco aprila in Safari, oppure rimetti l'icona sulla schermata Home con «Apri come app web» spento (vedi sotto).</span></div>" : "") +
-          '<div class="cell"><ol class="steps">' +
+      (auto ? '<div class="cell"><span class="ic" style="color:var(--green)">' + checkFilled() + '</span><span class="cell-main"><span class="t b">' +
+          (verified ? "Ponte automatico attivo" : "Ponte automatico installato") + "</span>" +
+          '<span class="s">' + (verified ? "«Aggiorna dal portale» apre il portale, legge i dati e torna qui da solo."
+            : "Lo script risponde su questa pagina. Al primo «Aggiorna dal portale» si verifica anche il portale: se resti lì senza tornare, consenti Userscripts anche su lastataleopen.myariel.unimi.it (passaggio 2).") +
+          " Se ci sono modifiche da inviare, il pannello sul portale chiede una conferma.</span></span></div>"
+        : (standalone ? '<div class="cell notice">' + ic("warn") + "<span>Aperta come app web dalla schermata Home, l'app non vede le estensioni di Safari (limite di iOS). Per l'aggiornamento con un tocco aprila in Safari (vedi sotto).</span></div>" : "")) +
+      (auto && verified ? "" : '<div class="cell"><ol class="steps">' +
           "<li>Installa dall'App Store l'app gratuita <b>Userscripts</b> e aprila una volta.</li>" +
-          "<li>In Safari tocca <b>Gestisci estensioni</b> (o <b>Impostazioni → App → Safari → Estensioni</b>), attiva <b>Userscripts</b> e consenti l'accesso a <b>tutti i siti web</b> (o almeno a lastataleopen.myariel.unimi.it e leogen02.github.io).</li>" +
-          "<li>Tocca <b>Apri lo script</b> qui sotto; nella pagina che si apre tocca l'icona delle estensioni nella barra degli indirizzi → <b>Userscripts</b> → <b>Installa</b>.</li>" +
-          "<li>Torna qui e ricarica la pagina: compare <b>Ponte automatico attivo</b>.</li></ol></div>" +
+          "<li>In Safari tocca il pulsante a sinistra della barra degli indirizzi (menu della pagina) → <b>Gestisci estensioni</b> e attiva <b>Userscripts</b>. " +
+            "Poi, dallo stesso menu → <b>Userscripts</b>, consenti sempre l'accesso: scegli tutti i siti web, oppure fallo sia qui sia su una pagina di La Statale Open (lastataleopen.myariel.unimi.it). Non scegliere «per un giorno».</li>" +
+          "<li>Tocca <b>Apri lo script del ponte automatico</b> qui sotto; nella pagina che si apre: menu della pagina → <b>Userscripts</b> → <b>Install</b> (la finestra dell'estensione è in inglese).</li>" +
+          "<li>Torna qui e ricarica la pagina: compare <b>Ponte automatico installato</b>; dopo il primo aggiornamento riuscito diventa <b>attivo</b>.</li></ol></div>" +
           '<a class="cell accent-row" href="' + esc(appBase() + C.PONTE.userscript) + '" target="_blank" rel="noopener">' + ic("down") + '<span class="t">Apri lo script del ponte automatico</span></a>'),
-      (auto ? "" : "Lo script fa partire il ponte solo quando è l'app a chiederlo, con lo stesso file e la stessa impronta del preferito. Se preferisci non installare nulla, usa il preferito qui sotto. ") +
-        "Icona sulla schermata Home: in Safari tocca Condividi → Aggiungi alla schermata Home e spegni «Apri come app web» (iOS 26): l'icona apre l'app in Safari, dove il ponte automatico funziona.");
+      (auto ? "" : "Lo script fa partire il ponte solo per le richieste che l'app gli consegna, con lo stesso file e la stessa impronta del preferito. Se preferisci non installare nulla, usa il preferito qui sotto. ") +
+        "Icona sulla schermata Home: in Safari tocca Condividi → Aggiungi alla schermata Home e spegni «Apri come app web» (iOS 26). L'icona apre l'app in Safari, dove il ponte automatico funziona; come in Safari, i dati restano se apri l'app almeno una volta ogni 7 giorni. " +
+        "Un'icona aperta come app web ha un archivio suo: passando all'icona di Safari serve un aggiornamento, e le modifiche ancora da inviare vanno inviate prima dalla vecchia icona.");
     var showBookmark = !auto || S.ponte.bookmark;
     var body = group("", '<div class="cell"><span class="s">' + esc(MSG.ponteIntro) + "</span></div>") + autoGroup +
-      (showBookmark ? "" : group("", '<button class="cell accent-row" data-a="ponte-bookmark">' + ic("link") + '<span class="t">Usa invece il preferito</span></button>',
-        "Il preferito «Statale Open» resta utile dalla schermata Home o su un altro browser.")) +
+      (showBookmark ? "" : group("", '<button class="cell accent-row" data-a="ponte-bookmark">' + ic("link") + '<span class="t">Preferito di riserva</span></button>',
+        "Il preferito «Statale Open» resta utile come riserva: come app web della schermata Home, su un altro browser o se l'estensione è spenta.")) +
       (!showBookmark ? "" : group("Oppure con il preferito · 1 · Copia il codice",
         '<button class="cell accent-row" data-a="ponte-copy-code">' + ic("copy") + '<span class="t">' + (S.ponte.copied ? "Codice copiato ✓" : "Copia il codice") + "</span></button>" +
         '<div class="cell"><textarea class="code-box" id="ponte-code" readonly aria-label="Codice del preferito">' + esc(code) + "</textarea></div>" +
@@ -1369,8 +1420,8 @@
         : standalone
         ? '<div class="cell"><span class="s">Tocca «Aggiorna dal portale» e segui i passaggi: dalla schermata Home i dati passano dagli appunti.</span></div>'
         : '<div class="cell"><span class="s">Si apre La Statale Open in questa scheda. Se serve accedi, poi tocca la barra degli indirizzi e il preferito <b>Statale Open</b>: l\'app si riapre da sola con i tuoi dati.</span></div>',
-        standalone ? "Dalla schermata Home servono circa 10 tocchi per aggiornare; in una scheda di Safari ne bastano 3, ma Safari cancella i dati delle app web non aperte da 7 giorni (dalla schermata Home non succede)."
-          : "In Safari i dati restano finché apri l'app almeno una volta ogni 7 giorni; aggiunta alla schermata Home non scadono, ma per aggiornare servono più tocchi (i dati passano dagli appunti).") +
+        auto ? "" : standalone ? "Come app web della schermata Home servono circa 10 tocchi per aggiornare (i dati passano dagli appunti), ma i dati non scadono. In Safari con il preferito ne bastano 3, con il ponte automatico 1; lì i dati restano se apri l'app almeno una volta ogni 7 giorni."
+          : "In Safari i dati restano se apri l'app almeno una volta ogni 7 giorni. Come app web della schermata Home («Apri come app web» acceso) non scadono, ma per aggiornare servono più tocchi (i dati passano dagli appunti).") +
       '<div class="group"><button class="btn-primary" data-a="' + (auto ? "sync-now" : standalone ? "sync" : "sync-start") + '">' + ic(standalone && !auto ? "refresh" : "globe") +
         (auto ? "Aggiorna dal portale" : standalone ? "Aggiorna dal portale" : "Apri il portale e aggiorna") + "</button></div>" +
       '<div class="group"><button class="btn-secondary" data-a="sync">' + ic("copy") + "Ho già i dati del ponte: incollali</button></div>";
@@ -2051,7 +2102,7 @@
     checkUpdateIfNeeded();
   });
   // Tornando indietro dal portale Safari ripristina la pagina com'era: si ridisegna per l'avviso del giro non concluso.
-  window.addEventListener("pageshow", function (ev) { if (ev.persisted && S.mode === "bridge") render(); });
+  window.addEventListener("pageshow", function (ev) { if (ev.persisted) { S.ponte.starting = false; S.ponte.incoming = false; if (S.mode === "bridge") render(); } });
   // Lo script del ponte automatico arriva a pagina caricata: si ridisegna (un tocco) e, se scelto, si aggiorna da solo.
   function autoDetected() {
     if (S.phase === "app" || S.phase === "ponte") render();

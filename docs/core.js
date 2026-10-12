@@ -185,7 +185,7 @@
     // Impronte dei file pubblicati: non cambiano mai (i preferiti già installati le controllano).
     known: {
       "ponte/ponte-1.js": "sha384-WuK1i08q5ugibinF49Tb4mka8bTimQM3l76f9nkUugF8cjVs49zNYCbQDRx0+UN6",
-      "ponte/statale-open-1.user.js": "sha384-vvWzxGMXcROE3Uhmmv+2QvkCV0pBSRlFcWYuK5w5IEwYTf1k5jTg/Mw1sRuAOXCM"
+      "ponte/statale-open-1.user.js": "sha384-jsohAMyb6FdOJpwHi3wiXRr+Zfavm3Yl8mb101rJb8fiB/0tzW8JHptrI+/QIJS8"
     },
     fragmentCap: 60000,
     maxEnvelope: 1500000,
