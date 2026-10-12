@@ -879,7 +879,9 @@
     var text = "Dati aggiornati: " + S.data.courses.length + (S.data.courses.length === 1 ? " corso, " : " corsi, ") +
       S.data.events.length + (S.data.events.length === 1 ? " scadenza, " : " scadenze, ") +
       (unread ? unread + (unread === 1 ? " avviso da leggere" : " avvisi da leggere") : "nessun avviso da leggere");
-    if (snap.warn.length) text += ". Non aggiornato: " + snap.warn.map(function (w) { return w.part; }).join(", ");
+    // Il nome serve solo al saluto: se il portale non lo concede non è un problema da segnalare.
+    var warn = snap.warn.filter(function (w) { return w.part !== "nome"; });
+    if (warn.length) text += ". Non aggiornato: " + warn.map(function (w) { return w.part; }).join(", ");
     if (!stored.saved) text += ". Spazio dell'app esaurito: i dati restano solo finché l'app è aperta";
     else if (stored.trimmed) text += ". Spazio dell'app esaurito: alcuni contenuti dei corsi non sono stati salvati";
     if (rec.failed.length) text += ". " + rec.failed.length + (rec.failed.length === 1 ? " modifica non applicata" : " modifiche non applicate") + " (vedi Home)";
