@@ -1,8 +1,10 @@
 import SwiftUI
+import UIKit
 import UserNotifications
 
 struct SettingsView: View {
     @EnvironmentObject private var session: SessionStore
+    @AppStorage(SiteConfig.programNameKey) private var programName = SiteConfig.defaultProgramName
     @State private var webTarget: WebTarget?
 
     var body: some View {
@@ -15,6 +17,15 @@ struct SettingsView: View {
                         LabeledContent("Portale", value: info.sitename?.htmlStripped ?? SiteConfig.moodleHost)
                     }
                 }
+                Section {
+                    NavigationLink {
+                        ProgramPickerView()
+                    } label: {
+                        LabeledContent("Percorso", value: programName)
+                    }
+                } footer: {
+                    Text("Il percorso mostrato nella scheda Corsi.")
+                }
                 CredentialsSection()
                 RemindersSection()
                 Section("Portale") {
@@ -22,6 +33,7 @@ struct SettingsView: View {
                     Button("Profilo") { webTarget = WebTarget(url: SiteConfig.url("user/profile.php"), title: "Profilo") }
                     Button("Messaggi") { webTarget = WebTarget(url: SiteConfig.url("message/index.php"), title: "Messaggi") }
                 }
+                AboutSection()
                 Section {
                     Button("Esci", role: .destructive) { Task { await session.logout() } }
                 } footer: {
@@ -105,6 +117,49 @@ struct RemindersSection: View {
     }
 }
 
+/// Versione, aggiornamenti, segnalazioni e note legali (anche in modalità web).
+struct AboutSection: View {
+    @EnvironmentObject private var updates: UpdateChecker
+    @State private var copied = false
+
+    var body: some View {
+        Section {
+            LabeledContent("Versione", value: "\(AppInfo.version) (build \(AppInfo.build))")
+            if let update = updates.available {
+                Link(destination: update.url) {
+                    Label("Scarica la versione \(update.version)", systemImage: "arrow.down.circle.fill")
+                }
+            }
+            Button {
+                Task { await updates.check() }
+            } label: {
+                HStack {
+                    Text("Controlla aggiornamenti")
+                    Spacer()
+                    if updates.isChecking { ProgressView() }
+                }
+            }
+            .disabled(updates.isChecking || AppInfo.repository == nil)
+            if let url = AppInfo.installGuideURL { Link("Guida all'installazione", destination: url) }
+            if let url = AppInfo.releasesURL { Link("Novità delle versioni", destination: url) }
+            if let url = AppInfo.newIssueURL(template: "bug_report.yml") { Link("Segnala un problema", destination: url) }
+            if let url = AppInfo.newIssueURL(template: "feature_request.yml") { Link("Proponi un miglioramento", destination: url) }
+            Button(copied ? "Copiate ✓" : "Copia le informazioni per la segnalazione") {
+                UIPasteboard.general.string = AppInfo.diagnostics
+                copied = true
+            }
+            if let url = AppInfo.privacyURL { Link("Privacy", destination: url) }
+        } header: {
+            Text("Informazioni")
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if let result = updates.lastResult { Text(result) }
+                Text(AppInfo.disclaimer)
+            }
+        }
+    }
+}
+
 /// Modalità usata se il portale non abilita l'accesso via app mobile: pagine del sito in schede native.
 struct WebOnlyTabView: View {
     @EnvironmentObject private var session: SessionStore
@@ -125,6 +180,7 @@ struct WebOnlyTabView: View {
                         Button("Riprova il collegamento") { Task { await session.logout() } }
                     }
                     CredentialsSection()
+                    AboutSection()
                     Section {
                         Button("Esci", role: .destructive) { Task { await session.logout() } }
                     }

@@ -5,6 +5,8 @@ struct CoursesView: View {
     @EnvironmentObject private var data: PortalData
     @State private var scope = Scope.mine
     @State private var query = ""
+    @AppStorage(SiteConfig.programIDKey) private var programID = SiteConfig.defaultProgramID
+    @AppStorage(SiteConfig.programNameKey) private var programName = SiteConfig.defaultProgramName
 
     enum Scope: String, CaseIterable, Identifiable {
         case mine = "I miei corsi"
@@ -17,12 +19,15 @@ struct CoursesView: View {
             Group {
                 switch scope {
                 case .mine: myCourses
-                case .program: CategoryBrowserView(categoryID: SiteConfig.programCategoryID, title: SiteConfig.programName, embedded: true)
+                case .program:
+                    // .id: cambiando percorso in Altro l'elenco si ricarica da capo.
+                    CategoryBrowserView(categoryID: programID, title: programName, embedded: true)
+                        .id(programID)
                 }
             }
             .safeAreaInset(edge: .top) {
                 Picker("Ambito", selection: $scope) {
-                    ForEach(Scope.allCases) { Text($0 == .program ? "Percorso \(SiteConfig.programName)" : $0.rawValue).tag($0) }
+                    ForEach(Scope.allCases) { Text($0 == .program ? "Percorso \(programName)" : $0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)

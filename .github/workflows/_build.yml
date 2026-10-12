@@ -1,0 +1,118 @@
+# Compila l'ipa non firmato e lo verifica. Usato da ci.yml (ogni push e PR) e da release.yml.
+name: Build IPA
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Versione da scrivere nell'app (es. 1.2.0); vuoto = MARKETING_VERSION di project.yml"
+        type: string
+        default: ""
+    outputs:
+      version:
+        value: ${{ jobs.build.outputs.version }}
+      build:
+        value: ${{ jobs.build.outputs.build }}
+      sha256:
+        value: ${{ jobs.build.outputs.sha256 }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build dell'ipa
+    runs-on: macos-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      build: ${{ steps.meta.outputs.build }}
+      sha256: ${{ steps.package.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # serve la storia completa per il numero di build
+
+      - name: Installa XcodeGen e genera il progetto
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Versione e numero di build
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          VERSION="$INPUT_VERSION"
+          if [ -z "$VERSION" ]; then
+            VERSION=$(sed -nE 's/^ *MARKETING_VERSION: *"?([^"]+)"?.*$/\1/p' project.yml | head -n 1)
+          fi
+          # Numero di commit: cresce sempre e coincide tra CI e release dello stesso commit.
+          BUILD=$(git rev-list --count HEAD)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "Statale Open $VERSION (build $BUILD) da $GITHUB_REPOSITORY"
+
+      - name: Archive senza firma
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD: ${{ steps.meta.outputs.build }}
+        run: |
+          xcodebuild archive \
+            -project StataleOpen.xcodeproj \
+            -scheme StataleOpen \
+            -configuration Release \
+            -archivePath "$RUNNER_TEMP/StataleOpen.xcarchive" \
+            -destination "generic/platform=iOS" \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="$BUILD" \
+            STATALE_REPOSITORY="$GITHUB_REPOSITORY" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO > build.log 2>&1 || { grep -E "error:" build.log | sort -u; tail -n 40 build.log; exit 1; }
+
+      - name: Avvisi del compilatore
+        run: |
+          WARNINGS=$(grep -E "^/.*: warning: " build.log | sed "s|$GITHUB_WORKSPACE/||" | sort -u || true)
+          if [ -n "$WARNINGS" ]; then
+            echo "$WARNINGS"
+            echo "$WARNINGS" | head -n 20 | while IFS= read -r line; do echo "::warning::$line"; done
+          else
+            echo "Nessun avviso."
+          fi
+
+      - name: Impacchetta e verifica l'ipa
+        id: package
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD: ${{ steps.meta.outputs.build }}
+        run: |
+          APP="$RUNNER_TEMP/Payload/StataleOpen.app"
+          PLIST="$APP/Info.plist"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$RUNNER_TEMP/StataleOpen.xcarchive/Products/Applications/StataleOpen.app" "$APP"
+          read_key() { /usr/libexec/PlistBuddy -c "Print :$1" "$PLIST"; }
+          fail() { echo "::error::$1"; exit 1; }
+          # Controlli di coerenza prima di distribuire.
+          test -x "$APP/StataleOpen" || fail "Eseguibile mancante"
+          test -f "$APP/Assets.car" || fail "Icona e colori non compilati (Assets.car mancante)"
+          test -f "$APP/PrivacyInfo.xcprivacy" || fail "PrivacyInfo.xcprivacy non incluso"
+          [ "$(read_key CFBundleShortVersionString)" = "$VERSION" ] || fail "Versione nell'app diversa da $VERSION"
+          [ "$(read_key CFBundleVersion)" = "$BUILD" ] || fail "Numero di build nell'app diverso da $BUILD"
+          [ "$(read_key StataleOpenRepository)" = "$GITHUB_REPOSITORY" ] || fail "Repository per gli aggiornamenti non impostato"
+          [ "$(read_key CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName)" = "AppIcon" ] || fail "Icona non registrata nell'Info.plist"
+          for key in CFBundleIdentifier CFBundleShortVersionString CFBundleVersion CFBundleDevelopmentRegion MinimumOSVersion StataleOpenRepository; do
+            echo "$key = $(read_key "$key")"
+          done
+          cd "$RUNNER_TEMP"
+          zip -qr StataleOpen.ipa Payload
+          SHA=$(shasum -a 256 StataleOpen.ipa | cut -d ' ' -f 1)
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          ls -lh StataleOpen.ipa
+          echo "SHA-256: $SHA"
+
+      - name: Carica l'ipa come artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: StataleOpen-ipa
+          path: ${{ runner.temp }}/StataleOpen.ipa
+          retention-days: 30

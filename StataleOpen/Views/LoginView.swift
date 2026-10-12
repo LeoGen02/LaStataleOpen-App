@@ -20,6 +20,9 @@ struct LoginView: View {
                             .font(.title.bold())
                         Text("Percorso \(SiteConfig.programName) · lezioni, esercizi, e-tivity e scadenze in un'app.")
                             .foregroundStyle(.secondary)
+                        Text(AppInfo.shortDisclaimer)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 8)
                 }
@@ -250,26 +253,9 @@ struct LoginWebView: UIViewRepresentable {
         private func handleTokenURL(_ url: URL) {
             // La pagina di Moodle può aprire il link due volte (onload + nostro click): vale solo il primo.
             guard !finished else { return }
-            let string = url.absoluteString
-            guard let range = string.range(of: "token=") else { return fail() }
-            let raw = (String(string[range.upperBound...]).removingPercentEncoding ?? "")
-                .trimmingCharacters(in: CharacterSet(charactersIn: "#"))
-            // "/" fa parte dell'alfabeto base64: lo togliamo in coda solo se così com'è non si decodifica.
-            guard let decoded = Self.decodeBase64(raw) ?? Self.decodeBase64(raw.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) else {
-                return fail()
-            }
-            // Formato: firma:::token[:::tokenPrivato]
-            let parts = decoded.components(separatedBy: ":::")
-            guard parts.count >= 2, !parts[1].isEmpty else { return fail() }
+            guard let launch = MoodleLaunchToken.parse(url) else { return fail() }
             finished = true
-            parent.onToken(parts[1], parts.count > 2 && !parts[2].isEmpty ? parts[2] : nil)
-        }
-
-        private static func decodeBase64(_ string: String) -> String? {
-            var padded = string
-            while padded.count % 4 != 0 { padded += "=" }
-            guard let data = Data(base64Encoded: padded), let text = String(data: data, encoding: .utf8), text.contains(":::") else { return nil }
-            return text
+            parent.onToken(launch.token, launch.privateToken)
         }
 
         private func fail() {

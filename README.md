@@ -1,67 +1,106 @@
-# Statale Open — app iPhone per il portale myAriel (percorso SecAI)
+# Statale Open
 
-App SwiftUI (iOS 17+, pensata per iPhone 15 Pro Max) che porta sul telefono il portale
-[La Statale Open](https://lastataleopen.myariel.unimi.it), che non ha un'app propria.
-Stessa pipeline dell'altro progetto: niente Mac, il progetto Xcode viene generato da **XcodeGen** nella GitHub Action, che produce un `.ipa` non firmato da installare con Sideloadly/AltStore.
+[![CI](https://github.com/LeoGen02/LaStataleOpen-App/actions/workflows/ci.yml/badge.svg)](https://github.com/LeoGen02/LaStataleOpen-App/actions/workflows/ci.yml)
+
+App iPhone per il portale **[La Statale Open](https://lastataleopen.myariel.unimi.it)** (Moodle myAriel), che non ha un'app propria:
+corsi con lezioni, esercizi ed e-tivity, scadenze con promemoria, avvisi del portale e un browser interno già autenticato.
+
+> **App non ufficiale**, realizzata da studenti: non è affiliata né approvata dall'Università degli Studi di Milano.
+> Le credenziali restano sul tuo iPhone; l'app comunica solo con i server dell'Ateneo e con GitHub per controllare gli aggiornamenti
+> ([privacy](PRIVACY.md)).
+
+## Scarica
+
+**[⬇︎ StataleOpen.ipa — ultima versione](https://github.com/LeoGen02/LaStataleOpen-App/releases/latest/download/StataleOpen.ipa)**
+· [tutte le versioni e le novità](https://github.com/LeoGen02/LaStataleOpen-App/releases)
+
+Serve un iPhone con **iOS 17 o successivo**, un Apple ID (va bene quello gratuito) e, per la prima installazione, un computer Windows o Mac.
+
+## Installa
+
+In breve, con [Sideloadly](https://sideloadly.io):
+
+1. collega l'iPhone al computer, apri Sideloadly e trascina dentro `StataleOpen.ipa`;
+2. inserisci il tuo Apple ID e premi **Start**;
+3. sull'iPhone attiva la **Modalità sviluppatore** (*Impostazioni → Privacy e sicurezza*) e autorizza il tuo Apple ID
+   (*Impostazioni → Generali → VPN e gestione dispositivo*).
+
+Con un Apple ID gratuito l'app va rinnovata ogni 7 giorni. Tutti i passaggi, AltStore/SideStore e i problemi frequenti:
+**[guida all'installazione](docs/INSTALLAZIONE.md)**.
+
+### Aggiornamenti
+
+- L'app controlla da sola se c'è una versione nuova e lo segnala in Home (oppure *Altro → Informazioni → Controlla aggiornamenti*).
+- Per aggiornare installa il nuovo ipa sopra quello vecchio con lo stesso Apple ID: credenziali e impostazioni restano.
+- Con **AltStore** o **SideStore** aggiungi la sorgente e aggiorni dal telefono:
+  `https://github.com/LeoGen02/LaStataleOpen-App/releases/latest/download/altstore-source.json`
 
 ## Cosa fa
 
 | Scheda | Contenuto |
 |---|---|
-| **Home** | saluto, prossime scadenze, corsi aperti di recente, link rapidi (dashboard, calendario, valutazioni) |
-| **Corsi** | *I miei corsi* con avanzamento, oppure *Percorso SecAI*: i cluster della categoria 2 e i relativi insegnamenti |
-| **Dettaglio corso** | sezioni e attività con filtro **Lezioni / Esercizi / E-tivity**, ricerca, stato di completamento, segna come completata |
-| **Scadenze** | quiz, consegne ed e-tivity in ordine di data |
-| **Avvisi** | notifiche del portale (annunci, valutazioni, forum) con badge dei non letti |
-| **Altro** | credenziali, notifiche, link al portale completo, logout |
+| **Home** | saluto, prossime scadenze, corsi aperti di recente, link rapidi (dashboard, calendario, valutazioni), avviso di nuova versione |
+| **Corsi** | *I miei corsi* con avanzamento, oppure il *Percorso* (predefinito SecAI): cluster e insegnamenti |
+| **Dettaglio corso** | sezioni e attività con filtro **Lezioni / Esercizi / E-tivity**, ricerca, completamento, "segna come completata" |
+| **Scadenze** | quiz, consegne ed e-tivity in ordine di data, con *Scadute di recente*, *Oggi* e *Domani* |
+| **Avvisi** | notifiche del portale (annunci, valutazioni, forum) con badge dei non letti anche sull'icona |
+| **Altro** | percorso, credenziali, notifiche, portale completo, informazioni e segnalazioni, logout |
 
-Lezioni, quiz ed e-tivity si aprono nel **browser interno** (WKWebView) con la stessa sessione del portale:
-upload di file e foto per le consegne, video inline, PDF e download visualizzati con QuickLook, condivisione/apertura in Safari.
+- **Browser interno** per lezioni, quiz ed e-tivity, con la stessa sessione del portale: upload di file e foto per le consegne,
+  video, PDF e download con anteprima. *Condividi* e *Copia link* non includono mai il token di accesso.
+- **Promemoria** 24 ore e 2 ore prima di ogni scadenza; in background (quando iOS lo concede) controlla i nuovi avvisi.
+- **Dati offline**: senza rete restano visibili gli ultimi dati scaricati, con l'ora dell'aggiornamento.
+- **Percorso selezionabile** in *Altro → Percorso*, per chi non segue SecAI.
 
-**Notifiche locali**: promemoria 24 h e 2 h prima di ogni scadenza; in background (quando iOS lo concede) controlla i nuovi avvisi del portale.
+## Segnalazioni e proposte
+
+Dall'app: *Altro → Informazioni → Segnala un problema* (versione e modello vengono compilati da soli).
+Oppure apri una [issue](https://github.com/LeoGen02/LaStataleOpen-App/issues/new/choose). Non scrivere mai password o token.
+Per problemi di sicurezza segui [SECURITY.md](SECURITY.md).
 
 ## Come funziona il login
 
-1. Inserisci email e password di Ateneo nella schermata iniziale: vengono salvate **solo nel Portachiavi dell'iPhone** (mai nel codice o nel repository).
+1. Email e password di Ateneo vengono salvate **solo nel Portachiavi dell'iPhone** (mai nel codice o nel repository).
 2. L'app apre la pagina di login ufficiale (`elearning.unimi.it/...login.aspx`), la compila e la invia una volta (disattivabile con "Accesso automatico").
-3. Una volta dentro Moodle, l'app chiede il token come fa l'app ufficiale Moodle (`admin/tool/mobile/launch.php`) e da lì usa i web service REST (`core_course_get_contents`, `core_calendar_get_action_events_by_timesort`, ecc.).
-4. Le pagine aperte nel browser interno usano l'*autologin* di Moodle, e se la sessione scade il login viene ricompilato automaticamente.
+3. Dentro Moodle chiede il token come fa l'app ufficiale Moodle (`admin/tool/mobile/launch.php`) e usa i web service REST
+   (`core_course_get_contents`, `core_calendar_get_action_events_by_timesort`, …).
+4. Le pagine del browser interno usano l'*autologin* di Moodle; se la sessione scade il login viene ricompilato da solo.
 
-**Piano B — modalità web:** se il portale non ha abilitato i servizi per app mobile, l'app lo segnala e offre la modalità web: schede native (Home, Corsi, Scadenze) che mostrano direttamente le pagine del sito, con login automatico.
+**Piano B — modalità web:** se il portale non abilita i servizi per app mobile, l'app offre la modalità web: le schede mostrano
+direttamente le pagine del sito, con login automatico.
 
-## Struttura
+## Per chi sviluppa
+
+Niente Mac necessario: il progetto Xcode viene generato da [XcodeGen](https://github.com/yonaskolb/XcodeGen) e compilato da GitHub Actions.
 
 ```
-project.yml                     spec XcodeGen (Info.plist, versione, icona, background fetch, URL scheme)
+project.yml            spec XcodeGen: target app e test, Info.plist, versione, repository per gli aggiornamenti
 StataleOpen/
-  App/       entry point, SiteConfig (URL del portale, categoria SecAI = 2)
-  Models/    modelli JSON dei web service Moodle + classificazione lezioni/esercizi/e-tivity
-  Services/  MoodleClient, SessionStore/PortalData, Keychain, notifiche, autofill login
-  Views/     login, schede, dettaglio corso, browser interno
-  Resources/ Assets.xcassets (icona, colore)
-.github/workflows/build-unsigned-ipa.yml
+  App/                 entry point, SiteConfig (URL del portale, percorso), AppInfo (versione, link GitHub)
+  Models/              modelli JSON dei web service Moodle + classificazione lezioni/esercizi/e-tivity
+  Services/            MoodleClient, SessionStore/PortalData, Keychain, notifiche, aggiornamenti, token di login
+  Views/               login, schede, dettaglio corso, scelta del percorso, browser interno
+  Resources/           Assets.xcassets (icona, colore), PrivacyInfo.xcprivacy
+StataleOpenTests/      test unitari (classificazione, HTML, link, token, promemoria, versioni)
+scripts/               selezione del simulatore, note di rilascio, sorgente AltStore
+.github/workflows/     ci.yml (test + build a ogni push/PR), release.yml (pubblicazione), _test.yml, _build.yml
 ```
 
-## Novità 1.1
+- **CI**: a ogni push e pull request girano i test su simulatore e la build dell'ipa, che resta tra gli artifact del run.
+- **Release**: *Actions → Release → Run workflow* con la versione (es. `1.3.0`), oppure una release con tag `v1.3.0` creata dal sito.
+  Il workflow testa, compila, verifica l'ipa e pubblica `StataleOpen.ipa`, la copia con versione e la sorgente AltStore,
+  con le note prese da [CHANGELOG.md](CHANGELOG.md).
 
-- **Icona** e colore dell'app.
-- **Dati offline**: corsi, scadenze e avvisi restano visibili all'apertura anche senza rete (si aggiornano appena il portale risponde).
-- **Badge** sull'icona con il numero di avvisi non letti.
-- **Scadenze** con sezione *Scadute di recente* e giorni etichettati *Oggi* / *Domani*; in Home l'ora dell'ultimo aggiornamento.
-- Date, giorni e testi di sistema in **italiano** anche se l'iPhone è in un'altra lingua.
-- *Apri in Safari*, *Condividi* e *Copia link* non includono mai il token di accesso dell'app.
-- Disattivando i promemoria vengono cancellati subito anche quelli già programmati.
+Dettagli, convenzioni e procedura di rilascio: [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Scarica e installa
+### Da verificare sul portale
 
-1. Scarica l'ipa già compilato: **[StataleOpen.ipa](https://github.com/LeoGen02/LaStataleOpen-App/releases/latest/download/StataleOpen.ipa)**
-   (pagina *Releases* → *ultima-versione*; viene ricompilato e ripubblicato a ogni push, dopo aver verificato icona, versione e Info.plist. In alternativa: Actions → artifact `StataleOpen-unsigned`).
-2. Sideloadly: trascina l'`.ipa`, Apple ID gratuito, Start.
-3. iPhone: Impostazioni → Generali → VPN e gestione dispositivo → Autorizza. Con ID gratuito l'app va rifirmata ogni 7 giorni.
-
-## Da verificare al primo avvio
-
-Non ho potuto aprire il portale dall'ambiente di sviluppo, quindi:
+Il portale non era raggiungibile dall'ambiente in cui è stata scritta l'app, quindi:
 - se l'invio automatico del login non parte (pulsante non riconosciuto), basta toccare "Accedi" a mano: i campi sono già compilati;
-- se il portale non concede il token, usa la modalità web e segnalamelo: si può passare allo scraping delle pagine;
-- la classificazione Lezioni/Esercizi/E-tivity usa tipo di attività e nome (es. "E-tivity 1" → E-tivity, quiz → Esercizi): si regola in `ActivityKind.classify`.
+- se il portale non concede il token, usa la modalità web e apri una issue: si può passare alla lettura delle pagine;
+- la classificazione Lezioni/Esercizi/E-tivity usa tipo e nome dell'attività (es. "E-tivity 1" → E-tivity, quiz → Esercizi):
+  si regola in `ActivityKind.classify`, con i test in `StataleOpenTests/ParsingTests.swift`.
+
+## Licenza
+
+[MIT](LICENSE). Il nome e i contenuti del portale La Statale Open appartengono all'Università degli Studi di Milano.

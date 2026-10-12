@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Guida all'installazione
+    url: https://github.com/LeoGen02/LaStataleOpen-App/blob/main/docs/INSTALLAZIONE.md
+    about: Sideloadly, AltStore, Modalità sviluppatore, rinnovo ogni 7 giorni e problemi frequenti.
+  - name: Problema di sicurezza
+    url: https://github.com/LeoGen02/LaStataleOpen-App/blob/main/SECURITY.md
+    about: Non aprire una issue pubblica: segui le istruzioni per una segnalazione privata.

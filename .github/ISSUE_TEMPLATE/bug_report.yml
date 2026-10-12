@@ -1,0 +1,62 @@
+name: Segnala un problema
+description: Qualcosa non funziona nell'app
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Grazie per la segnalazione! **Non scrivere mai password, token o dati personali**: le issue possono essere lette da altri.
+        Dall'app (*Altro → Informazioni → Segnala un problema*) versione e dispositivo sono già compilati.
+  - type: input
+    id: versione
+    attributes:
+      label: Versione dell'app
+      description: La trovi in Altro → Informazioni → Versione.
+      placeholder: "1.2.0 (build 57)"
+    validations:
+      required: true
+  - type: input
+    id: dispositivo
+    attributes:
+      label: iPhone e versione di iOS
+      placeholder: "iOS 18.1 · iPhone16,2"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Dove succede
+      options:
+        - Accesso / login
+        - Home
+        - Corsi o dettaglio corso
+        - Scadenze o promemoria
+        - Avvisi
+        - Browser interno (lezioni, quiz, consegne, file)
+        - Modalità web
+        - Installazione o aggiornamento
+        - Altro
+    validations:
+      required: true
+  - type: textarea
+    id: descrizione
+    attributes:
+      label: Cosa succede
+      description: Cosa ti aspettavi e cosa è successo invece. Uno screenshot aiuta (copri nome ed email).
+    validations:
+      required: true
+  - type: textarea
+    id: passi
+    attributes:
+      label: Come riprodurlo
+      placeholder: |
+        1. Apri la scheda Corsi
+        2. Tocca un insegnamento
+        3. …
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: Non ho incluso password, token, email o altri dati personali.
+          required: true

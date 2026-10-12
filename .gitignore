@@ -6,3 +6,7 @@ DerivedData/
 *.ipa
 .DS_Store
 xcuserdata/
+build.log
+test.log
+dist/
+__pycache__/

@@ -1,0 +1,42 @@
+# Esegue i test unitari su un simulatore iPhone. Usato da ci.yml e da release.yml.
+name: Test
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test unitari
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Installa XcodeGen e genera il progetto
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Scegli un simulatore iPhone
+        id: simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 scripts/ci/pick_simulator.py)
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices available | grep "$UDID"
+
+      - name: Esegui i test
+        env:
+          UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          xcodebuild test \
+            -project StataleOpen.xcodeproj \
+            -scheme StataleOpen \
+            -destination "id=$UDID" \
+            CODE_SIGNING_ALLOWED=NO > test.log 2>&1 || {
+              grep -E "error:|: failed|XCTAssert|Fatal" test.log | sort -u | head -n 60
+              tail -n 60 test.log
+              exit 1
+            }
+          grep -E "Test Case .* passed|Executed [0-9]+ tests" test.log | tail -n 40

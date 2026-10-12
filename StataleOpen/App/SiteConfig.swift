@@ -13,9 +13,20 @@ enum SiteConfig {
         return components.url!
     }
 
-    /// Categoria del percorso SecAI (contiene i cluster).
-    static let programCategoryID = 2
-    static let programName = "SecAI"
+    /// Percorso mostrato nella scheda Corsi: predefinito SecAI (categoria 2, contiene i cluster),
+    /// modificabile in Altro → Percorso per chi segue un altro percorso del portale.
+    static let defaultProgramID = 2
+    static let defaultProgramName = "SecAI"
+    static let programIDKey = "programCategoryID"
+    static let programNameKey = "programName"
+
+    static var programCategoryID: Int {
+        UserDefaults.standard.object(forKey: programIDKey) as? Int ?? defaultProgramID
+    }
+
+    static var programName: String {
+        UserDefaults.standard.string(forKey: programNameKey) ?? defaultProgramName
+    }
 
     /// Schema usato da Moodle (tool_mobile) per restituire il token all'app.
     static let urlScheme = "stataleopen"

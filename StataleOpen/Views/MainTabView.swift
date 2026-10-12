@@ -34,6 +34,9 @@ struct MainTabView: View {
 struct HomeView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var data: PortalData
+    @EnvironmentObject private var updates: UpdateChecker
+    // Ridisegna la Home quando si cambia percorso in Altro.
+    @AppStorage(SiteConfig.programNameKey) private var programName = SiteConfig.defaultProgramName
     @State private var webTarget: WebTarget?
 
     var body: some View {
@@ -43,13 +46,22 @@ struct HomeView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Ciao, \(session.siteInfo?.firstname ?? session.siteInfo?.fullname ?? "studente")")
                             .font(.title2.bold())
-                        Text("Percorso \(SiteConfig.programName) · La Statale Open")
+                        Text("Percorso \(programName) · La Statale Open")
                             .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 4)
                 } footer: {
                     if let last = data.lastUpdated {
                         Text("Aggiornato \(last.formatted(.relative(presentation: .named)))")
+                    }
+                }
+
+                if let update = updates.available {
+                    Section {
+                        // Si apre in Safari: la nuova versione si installa come la prima (Sideloadly, AltStore o SideStore).
+                        Link(destination: update.url) {
+                            Label("È disponibile la versione \(update.version): tocca per scaricarla", systemImage: "arrow.down.circle.fill")
+                        }
                     }
                 }
 
@@ -85,7 +97,7 @@ struct HomeView: View {
 
                 Section("Portale") {
                     linkButton("Dashboard", systemImage: "rectangle.grid.2x2", url: SiteConfig.dashboardURL)
-                    linkButton("Percorso \(SiteConfig.programName) (sito)", systemImage: "square.stack.3d.up", url: SiteConfig.programURL)
+                    linkButton("Percorso \(programName) (sito)", systemImage: "square.stack.3d.up", url: SiteConfig.programURL)
                     linkButton("Calendario", systemImage: "calendar", url: SiteConfig.calendarURL)
                     linkButton("Valutazioni", systemImage: "chart.bar", url: SiteConfig.gradesURL)
                 }

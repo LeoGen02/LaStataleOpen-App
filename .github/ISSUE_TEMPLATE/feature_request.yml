@@ -1,0 +1,26 @@
+name: Proponi un miglioramento
+description: Un'idea per rendere l'app più utile
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Cosa vorresti fare
+      description: Descrivi la situazione, ad esempio "vorrei vedere i voti delle esercitazioni senza aprire il sito".
+    validations:
+      required: true
+  - type: textarea
+    id: proposta
+    attributes:
+      label: Come te lo immagini
+      description: Facoltativo. Dove starebbe nell'app e come funzionerebbe.
+  - type: input
+    id: versione
+    attributes:
+      label: Versione dell'app
+      placeholder: "1.2.0 (build 57)"
+  - type: input
+    id: dispositivo
+    attributes:
+      label: iPhone e versione di iOS
+      placeholder: "iOS 18.1 · iPhone16,2"

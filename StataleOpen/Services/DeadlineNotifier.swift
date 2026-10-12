@@ -17,31 +17,51 @@ enum DeadlineNotifier {
         (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
     }
 
+    struct PlannedReminder: Equatable {
+        let identifier: String
+        let fireDate: Date
+        let title: String
+        let body: String
+    }
+
+    /// Promemoria da programmare: 24 ore e 2 ore prima di ogni scadenza futura, solo se l'orario non è già passato.
+    /// Al massimo 25 scadenze (50 promemoria): iOS conserva al massimo 64 notifiche in coda.
+    static func plannedReminders(for events: [CalendarEvent], now: Date = Date()) -> [PlannedReminder] {
+        let reminders: [(seconds: TimeInterval, label: String)] = [(86_400, "domani"), (7_200, "tra 2 ore")]
+        var planned: [PlannedReminder] = []
+        for event in events.filter({ $0.date > now }).sorted(by: { $0.date < $1.date }).prefix(25) {
+            for reminder in reminders {
+                let fireDate = event.date.addingTimeInterval(-reminder.seconds)
+                guard fireDate > now else { continue }
+                planned.append(PlannedReminder(
+                    identifier: "\(prefix)\(event.id)-\(Int(reminder.seconds))",
+                    fireDate: fireDate,
+                    title: "Scadenza \(reminder.label)",
+                    body: [event.name.htmlStripped, event.course?.fullname.htmlStripped].compactMap { $0 }.joined(separator: " — ")
+                ))
+            }
+        }
+        return planned
+    }
+
     static func schedule(for events: [CalendarEvent]) async {
         let center = UNUserNotificationCenter.current()
         let pending = await center.pendingNotificationRequests()
         center.removePendingNotificationRequests(withIdentifiers: pending.map(\.identifier).filter { $0.hasPrefix(prefix) })
         guard isEnabled else { return }
 
-        let now = Date()
-        let reminders: [(seconds: TimeInterval, label: String)] = [(86_400, "domani"), (7_200, "tra 2 ore")]
-        // iOS conserva al massimo 64 notifiche in coda.
-        for event in events.filter({ $0.date > now }).sorted(by: { $0.date < $1.date }).prefix(25) {
-            for reminder in reminders {
-                let fireDate = event.date.addingTimeInterval(-reminder.seconds)
-                guard fireDate > now else { continue }
-                let content = UNMutableNotificationContent()
-                content.title = "Scadenza \(reminder.label)"
-                content.body = [event.name.htmlStripped, event.course?.fullname.htmlStripped].compactMap { $0 }.joined(separator: " — ")
-                content.sound = .default
-                let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
-                let request = UNNotificationRequest(
-                    identifier: "\(prefix)\(event.id)-\(Int(reminder.seconds))",
-                    content: content,
-                    trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-                )
-                try? await center.add(request)
-            }
+        for reminder in plannedReminders(for: events) {
+            let content = UNMutableNotificationContent()
+            content.title = reminder.title
+            content.body = reminder.body
+            content.sound = .default
+            let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: reminder.fireDate)
+            let request = UNNotificationRequest(
+                identifier: reminder.identifier,
+                content: content,
+                trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+            )
+            try? await center.add(request)
         }
     }
 

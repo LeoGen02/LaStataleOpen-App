@@ -1,0 +1,105 @@
+# Pubblica una versione per tutti. Due modi:
+#   - Actions → Release → Run workflow → scrivi la versione (es. 1.2.0);
+#   - oppure crea una release su GitHub con un tag nuovo vX.Y.Z (anche dal sito): gli allegati arrivano da soli.
+# Prima aggiungi la sezione della versione in CHANGELOG.md: diventa il testo della release.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versione da pubblicare, nel formato 1.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Controlla la versione
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then RAW="$INPUT_VERSION"; else RAW="$REF_NAME"; fi
+          RAW="$(echo "$RAW" | tr -d '[:space:]')"
+          VERSION="${RAW#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Versione non valida: '$RAW'. Usa il formato 1.2.0 (tag v1.2.0)."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: prepare
+    uses: ./.github/workflows/_test.yml
+
+  build:
+    needs: prepare
+    uses: ./.github/workflows/_build.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+
+  publish:
+    name: Pubblica la release
+    needs: [prepare, test, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      BUILD: ${{ needs.build.outputs.build }}
+      SHA256: ${{ needs.build.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: StataleOpen-ipa
+          path: dist
+
+      - name: Note, copia con versione e sorgente AltStore
+        run: |
+          echo "$SHA256  dist/StataleOpen.ipa" | sha256sum --check
+          cp dist/StataleOpen.ipa "dist/StataleOpen-$VERSION.ipa"
+          python3 scripts/release/release_notes.py --version "$VERSION" --repo "$GITHUB_REPOSITORY" --sha256 "$SHA256" > dist/notes.md
+          python3 scripts/release/altstore_source.py --repo "$GITHUB_REPOSITORY" --tag "$TAG" --version "$VERSION" \
+            --build "$BUILD" --ipa dist/StataleOpen.ipa > dist/altstore-source.json
+          python3 -m json.tool dist/altstore-source.json > /dev/null
+
+      - name: Pubblica su GitHub
+        run: |
+          ASSETS=(dist/StataleOpen.ipa "dist/StataleOpen-$VERSION.ipa" dist/altstore-source.json)
+          # La vecchia release automatica "ultima-versione" non serve più: il link .../releases/latest/download/StataleOpen.ipa resta valido.
+          gh release delete ultima-versione --cleanup-tag --yes 2>/dev/null || true
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # Release creata a mano dal sito: aggiunge gli allegati e, se è vuota, le note.
+            gh release upload "$TAG" "${ASSETS[@]}" --clobber
+            if [ -z "$(gh release view "$TAG" --json body --jq .body)" ]; then
+              gh release edit "$TAG" --notes-file dist/notes.md
+            fi
+            gh release edit "$TAG" --latest
+          else
+            gh release create "$TAG" "${ASSETS[@]}" \
+              --target "$GITHUB_SHA" \
+              --title "Statale Open $VERSION" \
+              --notes-file dist/notes.md \
+              --latest
+          fi
+          echo "Pubblicata: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"

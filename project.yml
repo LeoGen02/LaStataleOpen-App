@@ -20,6 +20,8 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         ITSAppUsesNonExemptEncryption: false
+        # Repository GitHub per aggiornamenti e segnalazioni (la build di GitHub Actions usa quello da cui parte).
+        StataleOpenRepository: "$(STATALE_REPOSITORY)"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -40,7 +42,24 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: it.leonardo.stataleopen
       TARGETED_DEVICE_FAMILY: "1"
       SWIFT_VERSION: "5.0"
-      MARKETING_VERSION: "1.1"
+      # Versione di sviluppo; le release la prendono dal tag (v1.2.0 → 1.2.0), il numero di build dai commit.
+      MARKETING_VERSION: "1.2.0"
       CURRENT_PROJECT_VERSION: "1"
+      STATALE_REPOSITORY: "LeoGen02/LaStataleOpen-App"
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    scheme:
+      testTargets:
+        - StataleOpenTests
+  StataleOpenTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - StataleOpenTests
+    dependencies:
+      - target: StataleOpen
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      PRODUCT_BUNDLE_IDENTIFIER: it.leonardo.stataleopen.tests
+      TARGETED_DEVICE_FAMILY: "1"
+      SWIFT_VERSION: "5.0"

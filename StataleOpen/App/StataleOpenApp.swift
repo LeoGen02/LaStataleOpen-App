@@ -5,16 +5,24 @@ import UserNotifications
 struct StataleOpenApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var session = SessionStore()
+    @StateObject private var updates = UpdateChecker()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(session)
+                .environmentObject(updates)
+                .task { await updates.checkIfNeeded() }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background {
+            switch phase {
+            case .background:
                 BackgroundRefresher.schedule()
+            case .active:
+                Task { await updates.checkIfNeeded() }
+            default:
+                break
             }
         }
         .backgroundTask(.appRefresh(SiteConfig.backgroundRefreshID)) {
