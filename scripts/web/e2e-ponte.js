@@ -83,8 +83,33 @@ async function setup(context) {
   const page = await newPage(false);
   await page.goto(APP);
 
-  await check(page, "accesso: «Collega con il ponte» mostra il codice del preferito", async () => {
-    await page.click('[data-a="ponte-setup"]');
+  await check(page, "accesso senza estensione: niente email e password, «Accedi» apre i 4 passaggi", async () => {
+    await expectText(page, "estensione gratuita Userscripts");
+    if (await page.locator("#login-pass").count()) throw new Error("accesso con la password mostrato con i servizi per app spenti");
+    await page.click('[data-a="login-portal"]');
+    await expectText(page, "1 · Installa Userscripts");
+    await expectText(page, "4 · Controlla");
+    if (await page.locator("#ponte-code").count()) throw new Error("preferito aperto senza chiederlo");
+    await shot(page, "p0-passaggi");
+  });
+
+  await check(page, "tornando dalla scheda dello script la pagina si ricarica da sola", async () => {
+    if ((await page.getAttribute('[data-a="script-opened"]', "href")) !== APP + C.PONTE.userscript) throw new Error("link allo script sbagliato");
+    // Safari mostra il testo dello script in una nuova scheda (Chromium lo scarica e chiude la scheda).
+    const [popup] = await Promise.all([page.waitForEvent("popup"), page.click('[data-a="script-opened"]')]);
+    await popup.close().catch(() => {});
+    await page.evaluate(() => { window.__primaDelRitorno = 1; });
+    await Promise.all([page.waitForEvent("load"), page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))]);
+    if (await page.evaluate(() => window.__primaDelRitorno)) throw new Error("pagina non ricaricata");
+    await expectText(page, "1 · Installa Userscripts");
+    // Una volta sola: un secondo ritorno non ricarica di nuovo.
+    await page.evaluate(() => { window.__secondo = 1; document.dispatchEvent(new Event("visibilitychange")); });
+    await page.waitForTimeout(500);
+    if (!(await page.evaluate(() => window.__secondo))) throw new Error("ricaricata in cerchio");
+  });
+
+  await check(page, "preferito di riserva: mostra il codice", async () => {
+    await page.click('[data-a="ponte-bookmark"]');
     await expectText(page, "Copia il codice");
     const code = await page.inputValue("#ponte-code");
     if (code !== C.bookmarklet(APP)) throw new Error("codice del preferito diverso");
@@ -288,7 +313,7 @@ async function setup(context) {
     if (bad.length) throw new Error("indirizzi non consentiti: " + bad.join(", "));
     await page.click('[data-tab="altro"]');
     await page.click('[data-a="logout"]');
-    await expectText(page, "Collega con il ponte");
+    await page.waitForSelector('[data-a="login-portal"]');
     const left = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("so.ponte.")));
     if (left.length) throw new Error("dati del ponte rimasti: " + left);
   });
@@ -298,7 +323,8 @@ async function setup(context) {
   const pwa = await newPage(true);
   await pwa.goto(APP);
   await check(pwa, "schermata Home: copia l'indirizzo, preferito in Safari, «Copia per l'app», «Incolla i dati»", async () => {
-    await pwa.click('[data-a="ponte-setup"]');
+    await pwa.click('[data-a="login-portal"]');
+    await expectText(pwa, "non vede le estensioni");
     await pwa.click('.content [data-a="sync"]');
     await pwa.click('.sheet [data-a="sync-start"]');
     await expectText(pwa, "Indirizzo copiato");
@@ -351,18 +377,24 @@ async function setup(context) {
   await auto.goto(APP);
   const portalPosts = () => portal.st.posts;
 
-  await check(auto, "estensione rilevata: primo aggiornamento con un tocco, senza preferito", async () => {
-    await auto.click('[data-a="ponte-setup"]');
-    await expectText(auto, "Ponte automatico installato");
-    await shot(auto, "p5-automatico-installazione");
-    await auto.click('[data-a="sync-now"]');
-    await auto.waitForURL((u) => u.toString().startsWith(ORIGIN + "/"), { timeout: 10000 });
+  await check(auto, "estensione rilevata: «Accedi» apre il login di Ateneo e torna all'app con i dati", async () => {
+    await expectText(auto, "pagina ufficiale del portale");
+    await shot(auto, "p5-automatico-accesso");
+    portal.st.loggedIn = false;
+    await auto.click('[data-a="login-portal"]');
+    await auto.waitForURL((u) => u.toString().startsWith(SSO), { timeout: 10000 });
+    await auto.click("#sso-login");
     await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 15000 });
     await expectText(auto, "Ciao, Mario");
     await expectText(auto, "Dati aggiornati");
+    if (portal.st.logins !== 1) throw new Error("login di Ateneo non avvenuto");
     if (gm.size) throw new Error("richiesta rimasta nell'archivio dell'estensione");
     await auto.click('[data-tab="altro"]');
     await expectText(auto, "attivo ✓");
+    if ((await auto.getAttribute('[data-a="switch"][data-key="autoSync"]', "aria-checked")) !== "true") throw new Error("«Aggiorna da solo all'apertura» non acceso");
+    await auto.click('[data-a="ponte-setup"]');
+    await expectText(auto, "Ponte automatico attivo");
+    await auto.click('[data-a="ponte-back"]');
     await auto.click('[data-tab="home"]');
   });
 
@@ -436,8 +468,6 @@ async function setup(context) {
   });
 
   await check(auto, "aggiorna da solo all'apertura (dati vecchi), senza ripartire in cerchio", async () => {
-    await auto.click('[data-tab="altro"]');
-    await auto.click('[data-a="switch"][data-key="autoSync"]');
     await auto.evaluate(() => {
       const s = JSON.parse(localStorage.getItem("so.ponte.snap"));
       s.at -= 3 * 3600e3;
@@ -512,8 +542,8 @@ async function setup(context) {
   await check(page, "senza estensione: «Aggiorna dal portale» apre i passaggi del preferito", async () => {
     portal = createPortal();
     await page.goto(APP);
-    await page.click('[data-a="ponte-setup"]').catch(() => {});
-    await expectText(page, "Ponte automatico");
+    await page.click('[data-a="login-portal"]');
+    await expectText(page, "ponte automatico");
     const t = await page.locator("#device").innerText();
     if (/attivo ✓/.test(t)) throw new Error("ponte automatico segnato come attivo senza estensione");
     const [download] = await Promise.all([page.waitForEvent("download"), page.click('[data-a="userscript-download"]')]);

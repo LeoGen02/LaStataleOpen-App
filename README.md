@@ -18,9 +18,10 @@ con i tuoi corsi, scadenze e avvisi veri. In Safari *Condividi → Aggiungi alla
   Il ponte è un preferito di Safari, «Statale Open», che tocchi su una pagina del portale in cui sei già entrato: legge corsi, sezioni e attività,
   scadenze, avvisi e percorsi con `lib/ajax/service.php` (lo stesso canale delle pagine del portale) e riporta i dati all'app.
   Installazione una volta sola, poi 3 tocchi per aggiornare in Safari: **[guida passo passo](docs/INSTALLAZIONE.md#app-web-con-il-ponte-consigliata-per-iniziare)**.
-- **Ponte automatico** (consigliato): con l'estensione gratuita *Userscripts* per Safari e lo script `docs/ponte/statale-open-1.user.js`,
-  «Aggiorna dal portale» è **un solo tocco**: l'app apre il portale, il ponte parte da solo (anche dopo il login di Ateneo) e l'app si riapre
-  con i dati; se ci sono modifiche da inviare, il pannello chiede una conferma. Funziona in Safari, anche da un'icona sulla schermata Home
+- **Accedi dall'app con il ponte automatico** (consigliato): con l'estensione gratuita *Userscripts* per Safari e lo script
+  `docs/ponte/statale-open-1.user.js`, **Accedi** apre la pagina ufficiale del portale (la password la scrivi solo lì, Safari può compilarla)
+  e l'app si riapre con i tuoi dati. Poi «Aggiorna dal portale» è **un solo tocco**, e all'apertura l'app si aggiorna da sola se i dati hanno
+  più di un'ora: il ponte parte da solo (anche dopo il login di Ateneo) e l'app si riapre con i dati; se ci sono modifiche da inviare, il pannello chiede una conferma. Funziona in Safari, anche da un'icona sulla schermata Home
   aggiunta con «Apri come app web» spento. Lo script parte solo per le richieste che l'app gli consegna.
 - **Modifiche in attesa**: avvisi letti e attività completate partono al prossimo aggiornamento, dopo una conferma nel pannello del ponte.
 - **Sicurezza**: il preferito carica solo `docs/ponte/ponte-1.js` con la sua impronta SHA-384 (Subresource Integrity: se il file cambia

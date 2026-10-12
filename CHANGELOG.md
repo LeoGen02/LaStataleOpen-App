@@ -31,7 +31,10 @@ e la descrizione dell'aggiornamento in AltStore e SideStore.
 - Test dell'app web: logica condivisa (`node --test`) e prova completa nel browser con il portale simulato, anche nella CI.
 
 ### Modificato
-- App web: l'accesso parte dal ponte; email e password e chiave dell'app sono in *Altri modi di accesso* (servono i servizi per app).
+- App web: **Accedi** apre la pagina ufficiale del portale e, con il ponte automatico, riporta all'app con i dati (la password la scrivi
+  solo sul portale); la prima volta guida l'installazione in quattro passaggi, con il preferito come riserva, e si accorge da sola
+  quando lo script è installato. Email e password e chiave dell'app compaiono solo se il portale ha i servizi per app attivi
+  (controllo automatico), così non c'è più l'accesso che non poteva funzionare. *Aggiorna da solo all'apertura* è acceso di serie.
 
 ## [1.2.0] - 2026-10-12
 

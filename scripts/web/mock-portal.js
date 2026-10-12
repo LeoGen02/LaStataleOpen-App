@@ -158,6 +158,11 @@ function createPortal() {
   function respond(method, url, body) {
     const u = new URL(url);
     if (u.pathname === "/lib/ajax/service.php" && method === "POST") return { status: 200, headers: { "Content-Type": "application/json" }, body: ajax(url, body || "") };
+    // Servizi per app spenti, come sul portale vero (token.php risponde a qualsiasi origine).
+    if (u.pathname === "/login/token.php") {
+      return { status: 200, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify({ error: "La funzione Web Services non è abilitata.", errorcode: "enablewsdescription" }) };
+    }
     if (u.pathname === "/my/" && !st.loggedIn) return { status: 303, headers: { Location: ORIGIN + "/login/index.php" }, body: "" };
     if (u.pathname === "/login/index.php") {
       return st.loggedIn ? { status: 303, headers: { Location: ORIGIN + "/my/" }, body: "" }

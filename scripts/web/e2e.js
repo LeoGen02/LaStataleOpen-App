@@ -134,10 +134,9 @@ function serve() {
 
   await page.goto(base);
 
-  await check("verifica del collegamento", async () => {
-    await page.click('[data-a="login-more"]');
-    await page.click('[data-a="site-check"]');
+  await check("portale con i servizi per app attivi: compare da solo l'accesso con le credenziali", async () => {
     await expectText("ha i servizi per app attivi");
+    await page.waitForSelector("#login-user");
   });
   await check("password sbagliata: messaggio chiaro", async () => {
     await page.fill("#login-user", "studente@studenti.unimi.it");
