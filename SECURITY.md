@@ -35,3 +35,12 @@ Il ponte (`docs/ponte/ponte-1.js`) gira sulla pagina del portale con la tua sess
   la pagina ha una Content-Security-Policy che vieta script esterni. Un link `#ponte=…` non richiesto dall'app chiede conferma prima di essere importato.
 
 Per verificare a mano: `openssl dgst -sha384 -binary docs/ponte/ponte-1.js | base64` deve dare l'impronta del preferito.
+
+### Ponte automatico (estensione Userscripts)
+
+`docs/ponte/statale-open-1.user.js` fa le veci del tocco sul preferito e nient'altro: `@match` solo sul portale e sulla pagina dell'app,
+nessuna richiesta di rete, nessun `@require`/`@updateURL` (non si aggiorna da solo), immutabile come il ponte (impronta in `PONTE.known`,
+controllata dalla CI). Sul portale carica `ponte/ponte-1.js` con la stessa `integrity` del preferito solo se l'indirizzo contiene
+una richiesta dell'app; un link costruito ad arte può al massimo far leggere i tuoi dati e consegnarli alla tua app (che chiede conferma
+se non li aveva chiesti), mentre le scritture restano da confermare nel pannello.
+

@@ -179,9 +179,14 @@
     version: 1,
     min: 1,
     file: "ponte/ponte-1.js",
+    // Ponte automatico: script per l'estensione Userscripts di Safari, che avvia lo stesso ponte da solo.
+    userscript: "ponte/statale-open-1.user.js",
     sri: "sha384-WuK1i08q5ugibinF49Tb4mka8bTimQM3l76f9nkUugF8cjVs49zNYCbQDRx0+UN6",
     // Impronte dei file pubblicati: non cambiano mai (i preferiti già installati le controllano).
-    known: { "ponte/ponte-1.js": "sha384-WuK1i08q5ugibinF49Tb4mka8bTimQM3l76f9nkUugF8cjVs49zNYCbQDRx0+UN6" },
+    known: {
+      "ponte/ponte-1.js": "sha384-WuK1i08q5ugibinF49Tb4mka8bTimQM3l76f9nkUugF8cjVs49zNYCbQDRx0+UN6",
+      "ponte/statale-open-1.user.js": "sha384-vvWzxGMXcROE3Uhmmv+2QvkCV0pBSRlFcWYuK5w5IEwYTf1k5jTg/Mw1sRuAOXCM"
+    },
     fragmentCap: 60000,
     maxEnvelope: 1500000,
     maxJSON: 3000000,
@@ -190,7 +195,9 @@
     reqTTL: D,
     pasteTTL: 30 * 60e3,
     treeTTL: 14 * D,
-    opTTL: 30 * D
+    opTTL: 30 * D,
+    autoTTL: 10 * 60e3,
+    autoAfter: H
   };
 
   // Preferito di Safari che carica il ponte con la sua impronta. Solo caratteri ASCII visibili: gli spazi e le lettere
@@ -506,7 +513,9 @@
         keys: ops.map(function (op) { return opKey(op) + "#" + op.n; }) }
     };
   }
-  function requestURL(text) { return ORIGIN + "/my/#statale-open=" + text; }
+  // Con il preferito si va alla Dashboard; con il ponte automatico alla pagina iniziale, che si apre anche senza login:
+  // così lo script può tenere la richiesta mentre l'utente entra (la Dashboard rimanderebbe subito al login di Ateneo).
+  function requestURL(text, entry) { return ORIGIN + (entry === "auto" ? "/" : "/my/") + "#statale-open=" + text; }
 
   // La modifica risulta già fatta nei dati appena letti? null se il ponte non ha letto quella parte.
   function satisfied(op, snap) {

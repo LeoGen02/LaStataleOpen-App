@@ -13,6 +13,9 @@ e la descrizione dell'aggiornamento in AltStore e SideStore.
   legge corsi, sezioni e attività, scadenze, avvisi e percorsi e li riporta all'app (nell'indirizzo, dagli appunti o da un file).
   Funziona con i servizi per app spenti. Avvisi letti e attività completate restano *da inviare* e arrivano al portale al prossimo
   aggiornamento, dopo una conferma. Il preferito carica il ponte con l'impronta SHA-384 (Subresource Integrity); file immutabili e verificati dalla CI.
+- **Ponte automatico**: con l'estensione gratuita *Userscripts* per Safari e lo script `ponte/statale-open-1.user.js`,
+  «Aggiorna dal portale» è un solo tocco (va al portale, legge e torna da solo, anche dopo il login di Ateneo); facoltativo
+  *Aggiorna da solo all'apertura*; avviso se il giro automatico non torna. Lo script carica lo stesso ponte con la stessa impronta.
 - App web: schermata di installazione del preferito, *Aggiorna dal portale* in Home e nel trascinamento verso il basso, sezione
   *Altro → Ponte con il portale* (modifiche in attesa, ritorno automatico, reinstallazione, codice del ponte), Content-Security-Policy.
 - Test del ponte: logica e sicurezza (`node --test`) e prova completa nel browser con il portale simulato, anche nella CI;

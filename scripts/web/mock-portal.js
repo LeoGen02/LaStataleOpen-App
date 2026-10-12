@@ -142,7 +142,7 @@ function createPortal() {
   function page(url) {
     const u = new URL(url);
     st.pages.push(u.pathname + u.search);
-    const userId = st.loggedIn ? st.userId : 1;
+    const userId = st.loggedIn ? st.userId : 0;
     if (u.pathname === "/course/index.php") {
       const id = Number(u.searchParams.get("categoryid") || 0), browse = u.searchParams.get("browse");
       const t = TREE[id] || { subs: [], courses: [] };
@@ -154,7 +154,29 @@ function createPortal() {
       "</head><body><header><a href=\"" + ORIGIN + "/my/\">La Statale Open</a></header><main><h1>Dashboard</h1><p>Pagina del portale simulato.</p></main></body></html>";
   }
 
-  return { ORIGIN, st, handle, ajax, page, state, events };
+  // Risposta completa come il portale vero: Dashboard senza login → login di Ateneo → di nuovo la Dashboard.
+  function respond(method, url, body) {
+    const u = new URL(url);
+    if (u.pathname === "/lib/ajax/service.php" && method === "POST") return { status: 200, headers: { "Content-Type": "application/json" }, body: ajax(url, body || "") };
+    if (u.pathname === "/my/" && !st.loggedIn) return { status: 303, headers: { Location: ORIGIN + "/login/index.php" }, body: "" };
+    if (u.pathname === "/login/index.php") {
+      return st.loggedIn ? { status: 303, headers: { Location: ORIGIN + "/my/" }, body: "" }
+        : { status: 302, headers: { Location: SSO + "?url=" + encodeURIComponent(ORIGIN + "/login/index.php") }, body: "" };
+    }
+    if (u.pathname === "/auth/sso/ritorno.php") { st.loggedIn = true; st.logins += 1; return { status: 303, headers: { Location: ORIGIN + "/my/" }, body: "" }; }
+    return { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" }, body: page(url) };
+  }
+  // Pagina di login di Ateneo simulata: il pulsante completa l'accesso e torna al portale.
+  function ssoPage() {
+    return "<!doctype html><html lang=\"it\"><head><meta charset=\"utf-8\"><title>Login di Ateneo</title></head><body>" +
+      "<form action=\"" + ORIGIN + "/auth/sso/ritorno.php\" method=\"get\"><input type=\"email\" name=\"u\"><input type=\"password\" name=\"p\">" +
+      "<button id=\"sso-login\" type=\"submit\">Accedi</button></form></body></html>";
+  }
+  st.logins = 0;
+
+  return { ORIGIN, SSO, st, handle, ajax, page, respond, ssoPage, state, events };
 }
 
-module.exports = { createPortal, ORIGIN };
+const SSO = "https://elearning.unimi.it/authentication/skin/lastataleopen/it/login.aspx";
+
+module.exports = { createPortal, ORIGIN, SSO };

@@ -8,13 +8,14 @@ const path = require("node:path");
 const { chromium } = require("playwright");
 const C = require("../../docs/core.js");
 const P = require("../../docs/ponte/ponte-1.js");
-const { createPortal, ORIGIN } = require("./mock-portal.js");
+const { createPortal, ORIGIN, SSO } = require("./mock-portal.js");
 
 const DOCS = path.resolve(__dirname, "../../docs");
 const APP = "https://leogen02.github.io/LaStataleOpen-App/";
 const SHOTS = process.argv[2] || null;
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".webmanifest": "application/manifest+json" };
 const BOOKMARK = decodeURIComponent(C.bookmarklet(APP).slice("javascript:".length));
+const USERSCRIPT = fs.readFileSync(path.join(DOCS, C.PONTE.userscript), "utf8");
 
 let portal = createPortal();
 let tamper = false;
@@ -30,14 +31,19 @@ async function setup(context) {
     if (tamper && rel.startsWith("ponte/")) body = Buffer.concat([body, Buffer.from("\n// modificato\n")]);
     return route.fulfill({ status: 200, headers: { "Content-Type": TYPES[path.extname(file)] || "application/octet-stream", "Access-Control-Allow-Origin": "*" }, body });
   });
+  // Portale con i suoi reindirizzamenti (Dashboard senza login → login di Ateneo → Dashboard).
+  // Playwright non intercetta le richieste nate da un reindirizzamento servito da route.fulfill: i 302/303 del portale
+  // simulato diventano una pagina che va subito all'indirizzo di destinazione (come farebbe il browser).
   await context.route(ORIGIN + "/**", (route) => {
     const req = route.request();
-    const url = new URL(req.url());
-    if (url.pathname === "/lib/ajax/service.php" && req.method() === "POST") {
-      return route.fulfill({ status: 200, contentType: "application/json", body: portal.ajax(req.url(), req.postData() || "") });
+    const r = portal.respond(req.method(), req.url(), req.postData());
+    if (r.status >= 300 && r.status < 400) {
+      return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8",
+        body: "<!doctype html><title>Reindirizzamento</title><script>location.replace(" + JSON.stringify(r.headers.Location) + ");</script>" });
     }
-    return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: portal.page(req.url()) });
+    return route.fulfill({ status: r.status, headers: r.headers, body: r.body });
   });
+  await context.route(SSO + "**", (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: portal.ssoPage() }));
   await context.route("https://api.github.com/**", (route) => route.fulfill({ status: 200, headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
     body: JSON.stringify({ tag_name: "v" + C.PONTE.version + ".0.0-test", html_url: "https://github.com/LeoGen02/LaStataleOpen-App/releases" }) }));
 }
@@ -158,7 +164,7 @@ async function setup(context) {
   });
 
   await check(page, "aggiornamento con modifiche: conferma sul portale, poi applicate e tolte dalla coda", async () => {
-    await page.click('[data-a="sync"]');
+    await page.click('[data-a="sync-now"]');
     await expectText(page, "partono 2 modifiche");
     await page.click('.sheet [data-a="sync-start"]');
     await page.waitForURL((u) => u.toString().startsWith(ORIGIN + "/my/"));
@@ -181,7 +187,7 @@ async function setup(context) {
     await page.click('[data-long="555"]', { button: "right" });
     await page.click('[data-a="ctx-toggle"]');
     await page.click('[data-tab="home"]');
-    await page.click('[data-a="sync"]');
+    await page.click('[data-a="sync-now"]');
     await page.click('.sheet [data-a="sync-start"]');
     await page.waitForURL((u) => u.toString().startsWith(ORIGIN + "/my/"));
     await tapBookmark(page);
@@ -197,7 +203,7 @@ async function setup(context) {
     await page.click('[data-tab="avvisi"]');
     await page.click('[data-a="notif"][data-id="3"]');
     await page.click('[data-tab="home"]');
-    await page.click('[data-a="sync"]');
+    await page.click('[data-a="sync-now"]');
     await page.click('.sheet [data-a="sync-start"]');
     await page.waitForURL((u) => u.toString().startsWith(ORIGIN + "/my/"));
     await page.goto(ORIGIN + "/my/"); // il login di Ateneo toglie il frammento
@@ -226,14 +232,14 @@ async function setup(context) {
     if (!/^SOP1\.z\./.test(fs.readFileSync(file, "utf8"))) throw new Error("file senza dati del ponte");
     await page.goto(APP);
     await expectText(page, "Ciao, Mario");
-    await page.click('[data-a="sync"]');
+    await page.click('[data-a="sync-now"]');
     await page.setInputFiles("#ponte-file", file);
     await expectText(page, "Dati aggiornati");
   });
 
   await check(page, "pagina da ospite e sessione scaduta: messaggi nel pannello", async () => {
     portal.st.loggedIn = false;
-    await page.goto(ORIGIN + "/my/");
+    await page.goto(ORIGIN + "/");
     await tapBookmark(page);
     await waitPanel(page, "Non hai ancora effettuato l'accesso");
     portal.st.loggedIn = true;
@@ -315,10 +321,144 @@ async function setup(context) {
     const { snap } = { snap: await P.collect({ wwwroot: ORIGIN, sesskey: portal.st.sesskey, userId: 42, requests: 0,
       fetch: async (u, init) => ({ ok: true, status: 200, type: "basic", text: async () => (init && init.method === "POST" ? portal.ajax(u, init.body) : portal.page(u)) }) }, null, () => {}) };
     const env = await P.encode(snap);
-    await pwa.click('[data-a="sync"]');
+    await pwa.click('[data-a="sync-now"]');
     await pwa.click('[data-a="sync-manual"]');
     await pwa.fill("#paste-box", "testo intorno " + env + " altro");
     await expectText(pwa, "Dati aggiornati");
+  });
+
+  // ---------- Ponte automatico: lo script dell'estensione Userscripts, come lo esegue Safari ----------
+  // A fine caricamento (@run-at document-end), con GM.getValue/setValue/deleteValue condivisi tra le pagine.
+  portal = createPortal();
+  const gm = new Map();
+  async function autoPage() {
+    const page2 = await newPage(false);
+    const context = page2.context();
+    await context.exposeBinding("__statale_gm", (source, op, key, value) => {
+      if (op === "get") return gm.has(key) ? gm.get(key) : null;
+      if (op === "set") gm.set(key, value);
+      if (op === "del") gm.delete(key);
+      return null;
+    });
+    await context.addInitScript({ content: "(function(){" +
+      "var GM={getValue:function(k,d){return window.__statale_gm('get',k).then(function(v){return v==null?d:v;});}," +
+      "setValue:function(k,v){return window.__statale_gm('set',k,v);},deleteValue:function(k){return window.__statale_gm('del',k);}};" +
+      "var run=function(){(function(GM){\n" + USERSCRIPT + "\n})(GM);};" +
+      "if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);else run();})();" });
+    return page2;
+  }
+  const auto = await autoPage();
+  await auto.goto(APP);
+  const portalPosts = () => portal.st.posts;
+
+  await check(auto, "estensione rilevata: primo aggiornamento con un tocco, senza preferito", async () => {
+    await auto.click('[data-a="ponte-setup"]');
+    await expectText(auto, "Ponte automatico attivo");
+    await shot(auto, "p5-automatico-installazione");
+    await auto.click('[data-a="sync-now"]');
+    await auto.waitForURL((u) => u.toString().startsWith(ORIGIN + "/"), { timeout: 10000 });
+    await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 15000 });
+    await expectText(auto, "Ciao, Mario");
+    await expectText(auto, "Dati aggiornati");
+    if (gm.size) throw new Error("richiesta rimasta nell'archivio dell'estensione");
+  });
+
+  await check(auto, "Home: «Aggiorna dal portale» va e torna da solo, nessun passaggio da fare", async () => {
+    await expectText(auto, "Ponte automatico: un tocco");
+    const before = portalPosts();
+    await auto.click('[data-a="sync-now"]');
+    await auto.waitForURL((u) => u.toString().startsWith(ORIGIN + "/"), { timeout: 10000 });
+    await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 15000 });
+    await expectText(auto, "Dati aggiornati");
+    if (await auto.locator(".sheet").count()) throw new Error("si è aperto il foglio dei passaggi");
+    if (portalPosts() <= before) throw new Error("il portale non è stato letto");
+    await shot(auto, "p6-automatico-home");
+  });
+
+  await check(auto, "sessione scaduta: login di Ateneo, poi il ponte riparte da solo e torna all'app", async () => {
+    portal.st.loggedIn = false;
+    const logins = portal.st.logins;
+    await auto.click('[data-a="sync-now"]');
+    await auto.waitForURL((u) => u.toString().startsWith(SSO), { timeout: 10000 });
+    if (gm.size !== 1) throw new Error("richiesta non tenuta durante il login");
+    await auto.click("#sso-login");
+    await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 15000 });
+    await expectText(auto, "Dati aggiornati");
+    if (portal.st.logins !== logins + 1) throw new Error("login non avvenuto");
+    if (gm.size) throw new Error("richiesta rimasta nell'archivio");
+    const t = await auto.locator("#device").innerText();
+    if (/non è tornato/.test(t)) throw new Error("avviso di giro non concluso dopo un giro riuscito");
+  });
+
+  await check(auto, "modifiche in attesa: unica conferma sul portale, poi ritorno automatico", async () => {
+    await auto.click('[data-tab="avvisi"]');
+    await auto.click('[data-a="mark-read"][data-id="3"]', { force: true }).catch(() => auto.click('[data-a="notif"][data-id="3"]'));
+    await auto.click('[data-tab="home"]');
+    await auto.click('[data-a="sync-now"]');
+    await auto.waitForURL((u) => u.toString().startsWith(ORIGIN + "/"), { timeout: 10000 });
+    await waitPanel(auto, "applicare 1 modifica");
+    await auto.click('[data-statale-open="ponte"] >> text=Applica e aggiorna');
+    await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 15000 });
+    await expectText(auto, "Dati aggiornati");
+    if (!portal.st.notifications.find((n) => n.id === 3).read) throw new Error("avviso non segnato sul portale");
+  });
+
+  await check(auto, "sul portale senza richiesta lo script non fa nulla", async () => {
+    const posts = portalPosts();
+    await auto.goto(ORIGIN + "/my/");
+    await auto.waitForTimeout(1200);
+    const injected = await auto.evaluate(() => !!document.querySelector('script[src*="ponte-1.js"]') || !!window.__statalePonte);
+    if (injected) throw new Error("ponte avviato senza richiesta");
+    if (portalPosts() !== posts) throw new Error("richieste al portale senza richiesta dell'app");
+    await auto.goto(APP);
+  });
+
+  await check(auto, "aggiorna da solo all'apertura (dati vecchi), senza ripartire in cerchio", async () => {
+    await auto.click('[data-tab="altro"]');
+    await auto.click('[data-a="switch"][data-key="autoSync"]');
+    await auto.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem("so.ponte.snap"));
+      s.at -= 3 * 3600e3;
+      localStorage.setItem("so.ponte.snap", JSON.stringify(s));
+      localStorage.removeItem("so.ponte.req");
+    });
+    const posts = portalPosts();
+    await auto.goto(APP);
+    await auto.waitForURL((u) => u.toString().startsWith(ORIGIN + "/"), { timeout: 10000 });
+    await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 15000 });
+    await expectText(auto, "Dati aggiornati");
+    if (portalPosts() <= posts) throw new Error("non ha aggiornato");
+    const after = portalPosts();
+    await auto.waitForTimeout(2500);
+    if (!auto.url().startsWith(APP) || portalPosts() !== after) throw new Error("è ripartito da solo dopo il ritorno");
+    // Dati freschi: riaprendo l'app non riparte.
+    await auto.goto(APP);
+    await auto.waitForTimeout(2000);
+    if (!auto.url().startsWith(APP) || portalPosts() !== after) throw new Error("aggiornato con dati freschi");
+  });
+
+  await check(auto, "giro automatico che non torna: avviso e strada del preferito, nessun nuovo tentativo", async () => {
+    await auto.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem("so.ponte.snap"));
+      s.at -= 3 * 3600e3;
+      localStorage.setItem("so.ponte.snap", JSON.stringify(s));
+      localStorage.setItem("so.ponte.req", JSON.stringify({ rid: "abcdefghijklmnopqrstuv", at: Date.now(), ret: "frag", tree: null, keys: [], auto: true }));
+    });
+    const posts = portalPosts();
+    await auto.goto(APP);
+    await expectText(auto, "non è tornato con i dati");
+    await expectText(auto, "Aggiorna con il preferito");
+    await auto.waitForTimeout(1500);
+    if (!auto.url().startsWith(APP) || portalPosts() !== posts) throw new Error("nuovo tentativo automatico subito dopo uno non concluso");
+  });
+
+  await check(page, "senza estensione: «Aggiorna dal portale» apre i passaggi del preferito", async () => {
+    portal = createPortal();
+    await page.goto(APP);
+    await page.click('[data-a="ponte-setup"]').catch(() => {});
+    await expectText(page, "Ponte automatico");
+    const t = await page.locator("#device").innerText();
+    if (/attivo ✓/.test(t)) throw new Error("ponte automatico segnato come attivo senza estensione");
   });
 
   console.log("\n" + passed + " controlli superati" + (errors.length ? ", " + errors.length + " problemi:\n" + errors.join("\n") : ", nessun problema."));

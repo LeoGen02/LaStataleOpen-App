@@ -88,3 +88,19 @@ jobs:
             echo "tentativo $i: pubblicato ancora $GOT, attendo…"; sleep 20
           done
           echo "::error::Dopo 10 minuti GitHub Pages serve un ponte diverso da quello del repository"; exit 1
+
+      # Lo script del ponte automatico si installa dalla copia su Pages: deve essere quello del repository.
+      - name: Script del ponte automatico pubblicato
+        env:
+          PAGES: https://leogen02.github.io/LaStataleOpen-App/
+        run: |
+          FILE=$(sed -nE 's/^ *userscript: "(ponte\/[a-z0-9-]+\.user\.js)".*/\1/p' docs/core.js | head -n 1)
+          WANT="sha384-$(openssl dgst -sha384 -binary "docs/$FILE" | base64 -w0)"
+          grep -q "\"$FILE\": \"$WANT\"" docs/core.js || { echo "::error::$FILE non corrisponde a PONTE.known in docs/core.js"; exit 1; }
+          for i in $(seq 1 30); do
+            curl -sS -o script.user.js --max-time 25 "$PAGES$FILE?controllo=$i" || true
+            GOT="sha384-$(openssl dgst -sha384 -binary script.user.js | base64 -w0)"
+            if [ "$GOT" = "$WANT" ]; then echo "pubblicato: $FILE $GOT"; exit 0; fi
+            echo "tentativo $i: pubblicato ancora $GOT, attendo…"; sleep 20
+          done
+          echo "::error::Dopo 10 minuti GitHub Pages serve uno script diverso da quello del repository"; exit 1

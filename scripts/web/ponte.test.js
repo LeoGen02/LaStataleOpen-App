@@ -374,3 +374,105 @@ test("pagine dei percorsi come SitePages dell'app iPhone", () => {
   assert.deepEqual(P.parseCourses(links), [{ id: 7, n: "Corso sette" }]);
   assert.deepEqual(P.parseCourses("<p>niente</p>"), []);
 });
+
+// ---------- Ponte automatico (script per l'estensione Userscripts di Safari) ----------
+const vm = require("node:vm");
+const USERSCRIPT = fs.readFileSync(path.join(DOCS, C.PONTE.userscript), "utf8");
+
+// Esegue lo script come l'estensione: in un ambiente finto con pagina, indirizzo e archivio GM.
+async function runUserscript({ href, html = "", top = true, gm = new Map(), useGM = true }) {
+  const url = new URL(href);
+  const appended = [], assigned = [], replaced = [], attrs = {}, events = [];
+  const scripts = html ? [{ textContent: html }] : [];
+  const location = {
+    href: url.href, origin: url.origin, protocol: url.protocol, hostname: url.hostname, pathname: url.pathname, search: url.search, hash: url.hash,
+    assign: (u) => assigned.push(u)
+  };
+  const document = {
+    documentElement: { setAttribute: (k, v) => { attrs[k] = v; }, appendChild: (n) => appended.push(n) },
+    head: { appendChild: (n) => appended.push(n) },
+    querySelectorAll: (sel) => (sel === "script:not([src])" ? scripts : []),
+    createElement: (tag) => ({ tag }),
+    dispatchEvent: (e) => events.push(e.type)
+  };
+  const self = {};
+  const window = top ? self : {};
+  const GM = useGM ? { getValue: async (k, d) => (gm.has(k) ? gm.get(k) : d), setValue: async (k, v) => { gm.set(k, v); }, deleteValue: async (k) => { gm.delete(k); } } : undefined;
+  const session = new Map();
+  const sandbox = {
+    window: Object.assign(window, { top: self, self }), document, location, GM, Date, JSON, Promise, alert: () => {},
+    CustomEvent: function (type) { this.type = type; },
+    history: { state: null, replaceState: (s, t, u) => { replaced.push(u); } },
+    sessionStorage: { getItem: (k) => (session.has(k) ? session.get(k) : null), setItem: (k, v) => session.set(k, v), removeItem: (k) => session.delete(k) }
+  };
+  if (!top) sandbox.window.top = {};
+  vm.runInNewContext(USERSCRIPT, sandbox);
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  return { appended, assigned, replaced, attrs, events, gm, session };
+}
+const LOGGED = 'var M = {}; M.cfg = {"wwwroot":"https:\\/\\/lastataleopen.myariel.unimi.it","sesskey":"abc123","userId":42};';
+const GUEST = 'var M = {}; M.cfg = {"wwwroot":"https:\\/\\/lastataleopen.myariel.unimi.it","sesskey":"abc123","userId":0};';
+const REQ = "SOQ1.eyJ2IjoxfQ";
+
+test("ponte automatico: metadati, impronta del ponte, nessuna API vietata, file immutabile", () => {
+  assert.ok(USERSCRIPT.startsWith("// ==UserScript==\n"));
+  const meta = USERSCRIPT.slice(0, USERSCRIPT.indexOf("// ==/UserScript=="));
+  const keys = (k) => (meta.match(new RegExp("^// @" + k + "\\s+(.+)$", "gm")) || []).map((l) => l.replace(new RegExp("^// @" + k + "\\s+"), "").trim());
+  assert.deepEqual(keys("match"), ["https://lastataleopen.myariel.unimi.it/*", "https://leogen02.github.io/LaStataleOpen-App/*"]);
+  assert.deepEqual(keys("grant"), ["GM.getValue", "GM.setValue", "GM.deleteValue"]);
+  assert.deepEqual(keys("inject-into"), ["content"]);
+  assert.deepEqual(keys("run-at"), ["document-end"]);
+  assert.ok(/^\/\/ @noframes\s*$/m.test(meta));
+  for (const k of ["updateURL", "downloadURL", "require", "include", "resource"]) assert.deepEqual(keys(k), [], "@" + k + " non ammesso: lo script resta quello installato");
+  assert.ok(USERSCRIPT.includes('var APP = "' + APP_BASE + '";'));
+  assert.ok(USERSCRIPT.includes('var BRIDGE = APP + "' + C.PONTE.file + '";'));
+  assert.ok(USERSCRIPT.includes('var INTEGRITY = "' + C.PONTE.sri + '";'));
+  for (const word of ["fetch(", "XMLHttpRequest", "xmlHttpRequest", ".cookie", "localStorage", "innerHTML", "eval(", "Function(", "postMessage", "sendBeacon", "WebSocket", "openInTab", "setClipboard", "window.open"]) {
+    assert.ok(!USERSCRIPT.includes(word), "lo script contiene " + word);
+  }
+  assert.equal(C.PONTE.known[C.PONTE.userscript], sri(C.PONTE.userscript), C.PONTE.userscript + " è cambiato: chi l'ha installato terrebbe la versione vecchia. Crea statale-open-2.user.js. Impronta attuale: " + sri(C.PONTE.userscript));
+});
+
+test("ponte automatico: sull'app segnala di essere installato e non fa altro", async () => {
+  const r = await runUserscript({ href: APP_BASE + "#ponte=x" });
+  assert.deepEqual(r.attrs, { "data-statale-open-auto": "1" });
+  assert.deepEqual(r.events, ["statale-open-auto"]);
+  assert.equal(r.appended.length + r.assigned.length, 0);
+});
+
+test("ponte automatico: richiesta dell'app con utente entrato → stesso ponte del preferito", async () => {
+  const r = await runUserscript({ href: ORIGIN + "/#statale-open=" + REQ, html: LOGGED });
+  assert.equal(r.appended.length, 1);
+  assert.deepEqual(r.appended[0], { tag: "script", src: APP_BASE + "ponte/ponte-1.js", integrity: C.PONTE.sri, crossOrigin: "anonymous", referrerPolicy: "no-referrer", onerror: r.appended[0].onerror });
+  assert.equal(r.assigned.length, 0);
+  assert.equal(r.gm.size, 0);
+});
+
+test("ponte automatico: senza login tiene la richiesta, va alla Dashboard e riparte dopo l'accesso", async () => {
+  const gm = new Map();
+  const first = await runUserscript({ href: ORIGIN + "/#statale-open=" + REQ, html: GUEST, gm });
+  assert.equal(first.appended.length, 0);
+  assert.deepEqual(first.assigned, [ORIGIN + "/my/"]);
+  assert.deepEqual(first.replaced, ["/"]);
+  assert.equal(JSON.parse(gm.get("statale-open-richiesta")).req, REQ);
+  const after = await runUserscript({ href: ORIGIN + "/my/", html: LOGGED, gm });
+  assert.deepEqual(after.replaced, ["/my/#statale-open=" + REQ]);
+  assert.equal(after.appended.length, 1);
+  assert.equal(gm.size, 0, "richiesta usata una volta sola");
+  // Senza archivio dell'estensione resta quello della scheda.
+  const noGM = await runUserscript({ href: ORIGIN + "/#statale-open=" + REQ, html: GUEST, useGM: false });
+  assert.equal(JSON.parse(noGM.session.get("statale-open-richiesta")).req, REQ);
+});
+
+test("ponte automatico: nessuna azione senza richiesta, con richiesta scaduta, in un riquadro o su altri siti", async () => {
+  const nothing = (r) => r.appended.length === 0 && r.assigned.length === 0 && r.replaced.length === 0;
+  assert.ok(nothing(await runUserscript({ href: ORIGIN + "/my/", html: LOGGED })));
+  const old = new Map([["statale-open-richiesta", JSON.stringify({ req: REQ, at: Date.now() - 11 * 60e3 })]]);
+  assert.ok(nothing(await runUserscript({ href: ORIGIN + "/my/", html: LOGGED, gm: old })));
+  const bad = new Map([["statale-open-richiesta", JSON.stringify({ req: "javascript:alert(1)", at: Date.now() })]]);
+  assert.ok(nothing(await runUserscript({ href: ORIGIN + "/my/", html: LOGGED, gm: bad })));
+  assert.ok(nothing(await runUserscript({ href: ORIGIN + "/#statale-open=" + REQ, html: LOGGED, top: false })));
+  assert.ok(nothing(await runUserscript({ href: "https://esterno.example/#statale-open=" + REQ, html: LOGGED })));
+  assert.ok(nothing(await runUserscript({ href: ORIGIN + "/pluginfile.php/1/a.pdf#statale-open=" + REQ })), "pagina senza M.cfg");
+  assert.ok(nothing(await runUserscript({ href: ORIGIN + "/#statale-open=SOQ1.<script>", html: LOGGED })));
+});

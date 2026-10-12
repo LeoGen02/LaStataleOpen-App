@@ -9,7 +9,28 @@ Apri **[leogen02.github.io/LaStataleOpen-App](https://leogen02.github.io/LaStata
 Il portale non lascia leggere i tuoi dati alle app web, quindi l'app li riceve dal **ponte**: un preferito di Safari
 che tocchi su una pagina di La Statale Open in cui sei già entrato. Il ponte legge corsi, scadenze e avvisi e torna all'app.
 
-### Una volta sola: crea il preferito «Statale Open»
+### Il modo più semplice: ponte automatico (un tocco per aggiornare)
+
+Con l'estensione gratuita **Userscripts** per Safari, «Aggiorna dal portale» diventa un solo tocco: l'app apre il portale,
+il ponte legge i dati da solo e l'app si riapre aggiornata. Niente preferito, niente incolla.
+
+1. Installa dall'App Store l'app **Userscripts** (gratuita e open source) e aprila una volta.
+2. Attiva l'estensione: in Safari tocca **Gestisci estensioni** (o *Impostazioni → App → Safari → Estensioni*) → **Userscripts** → attiva,
+   e consenti l'accesso a **tutti i siti web** (o almeno a `lastataleopen.myariel.unimi.it` e `leogen02.github.io`).
+3. Nell'app tocca **Collega con il ponte** (o *Altro → Ponte con il portale*) → **Apri lo script del ponte automatico**.
+   Nella pagina che si apre tocca l'icona delle estensioni nella barra degli indirizzi → **Userscripts** → **Installa**.
+4. Torna all'app e ricarica la pagina: compare **Ponte automatico attivo**. Da qui *Home → Aggiorna dal portale* fa tutto da solo.
+   Se la sessione del portale è scaduta, accedi con il login di Ateneo: subito dopo il ponte riparte e torna all'app.
+
+- **Icona sulla schermata Home**: in Safari *Condividi → Aggiungi alla schermata Home* e **spegni «Apri come app web»** (iOS 26).
+  L'icona apre l'app in Safari, dove l'estensione funziona. Aperta come app web, invece, l'app non vede le estensioni di Safari
+  (limite di iOS): lì resta il preferito con gli appunti.
+- Facoltativo: *Altro → Ponte con il portale → Aggiorna da solo all'apertura* aggiorna quando apri l'app con dati più vecchi di un'ora.
+- Se ci sono modifiche da inviare (avvisi letti, attività completate) il pannello del ponte chiede **Applica e aggiorna**: è l'unico tocco in più.
+- Lo script non fa nulla nelle altre pagine del portale: si attiva solo con la richiesta dell'app e carica lo stesso ponte del preferito,
+  con la stessa impronta. Non si aggiorna da solo: resta quello che hai installato.
+
+### Senza estensioni: crea il preferito «Statale Open»
 
 1. Nell'app tocca **Collega con il ponte** → **Copia il codice**.
 2. In Safari tocca **Condividi** (il quadrato con la freccia) → **Aggiungi ai Preferiti**, chiamalo **Statale Open** e tocca **Salva**.
@@ -42,6 +63,7 @@ Sul computer basta trascinare il pulsante **★ Statale Open** della schermata d
 | *Non hai ancora effettuato l'accesso al portale* | tocca **Accedi** nel pannello, entra con il login di Ateneo e tocca di nuovo il preferito |
 | *La sessione del portale è scaduta* | ricarica la pagina, accedi e tocca di nuovo il preferito |
 | *Questa pagina non è adatta al ponte* | apri la Dashboard del portale (pannello → **Apri la Dashboard**) e riprova |
+| *L'aggiornamento automatico non è tornato con i dati* | in Safari: *Gestisci estensioni* → Userscripts attiva e consentita su `lastataleopen.myariel.unimi.it`; in Userscripts lo script «Statale Open · ponte automatico» deve essere attivo. Intanto puoi usare il preferito |
 | *Negli appunti non ci sono dati del ponte* | nel pannello sul portale tocca **Copia per l'app**, poi **Incolla i dati**; in alternativa **Scarica i dati in un file** e nell'app **Scegli un file** |
 
 In Safari i dati dell'app restano finché la apri almeno una volta ogni 7 giorni; dalla schermata Home non scadono.
