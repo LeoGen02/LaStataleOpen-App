@@ -45,6 +45,14 @@ jobs:
           curl -sS -o /dev/null -w "HTTP %{http_code} → %{redirect_url}\n" --max-time 25 "$P/admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=123&urlscheme=stataleopen" || true
           show "login/index.php (dove rimanda?)"
           curl -sS -o /dev/null -w "HTTP %{http_code} → %{redirect_url}\n" --max-time 25 "$P/login/index.php" || true
+          show "Intestazioni di sicurezza delle pagine (CSP, frame, permessi): il ponte dell'app web può girare sul portale?"
+          for path in / /login/index.php /login/forgot_password.php /my/ /course/index.php /lib/ajax/service.php; do
+            echo "--- $path"
+            curl -sS -o /dev/null -D - --max-time 25 "$P$path" | grep -iE "^(HTTP/|content-security-policy|x-frame-options|permissions-policy|cross-origin-|x-content-type-options|referrer-policy|location:)" || true
+          done
+          show "Tema e configurazione JS di una pagina pubblica (login/forgot_password.php)"
+          curl -sS --max-time 25 "$P/login/forgot_password.php" | grep -oE '"theme":"[^"]*"|/theme/styles\.php/[a-z0-9_]+/|"release":"[^"]*"|<html[^>]*>|<meta http-equiv="Content-Security-Policy"[^>]*>' | sort -u | head -n 20 || true
+          echo
           show "token.php con credenziali inventate (che errore dà?)"
           curl -sS --max-time 25 -X POST "$P/login/token.php" -d "username=prova.inesistente&password=x&service=moodle_mobile_app" | head -c 600 || true
           echo
