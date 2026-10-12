@@ -25,7 +25,9 @@ che viaggiano direttamente tra il browser e il portale dell'Ateneo.
 
 ### Ponte con il portale (app web)
 
-- Il ponte gira sulla pagina del portale solo quando tocchi il preferito «Statale Open». Legge i tuoi corsi (nome, avanzamento),
+- Il ponte gira sulla pagina del portale solo quando tocchi il preferito «Statale Open» oppure, con il ponte automatico, quando tocchi
+  «Accedi» o «Aggiorna dal portale» e quando apri l'app con dati più vecchi di un'ora (*Aggiorna da solo all'apertura*, acceso di serie,
+  si spegne in *Altro → Ponte con il portale*). La password la scrivi solo sulla pagina del portale: l'app non la vede. Legge i tuoi corsi (nome, avanzamento),
   sezioni e attività (nome, tipo, completamento), scadenze, avvisi (oggetto e corso, non il testo del messaggio) e l'elenco dei percorsi.
   **Non legge** password, cookie, email, voti, testi dei messaggi né dati di altri studenti; la chiave di sessione del portale (sesskey)
   resta in memoria durante la lettura e non viene consegnata all'app.
@@ -35,7 +37,7 @@ che viaggiano direttamente tra il browser e il portale dell'Ateneo.
 - L'app li salva nell'archivio del browser, insieme alle modifiche non ancora inviate. *Esci* cancella tutto; il preferito resta in Safari
   finché non lo elimini.
 - GitHub vede solo lo scaricamento anonimo del file del ponte (senza indirizzo di provenienza).
-- **Ponte automatico** (facoltativo, estensione Userscripts): sull'app lo script segnala di essere installato e, a ogni «Aggiorna dal portale»,
+- **Ponte automatico** (facoltativo, estensione Userscripts): sull'app lo script segnala di essere installato e, a ogni «Accedi», «Aggiorna dal portale» o aggiornamento all'apertura,
   registra nell'archivio dell'estensione la richiesta dell'app (solo identificativi numerici, niente titoli), valida 10 minuti e usata una volta:
   la cancella quando la usa, quando la trova scaduta o quando arriva la successiva. Sul portale legge soltanto l'utente della pagina
   (`M.cfg.userId`, per sapere se sei entrato). Non legge cookie, password o contenuti e non fa richieste di rete.

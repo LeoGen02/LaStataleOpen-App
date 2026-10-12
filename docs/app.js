@@ -796,8 +796,12 @@
   // e si torna qui con i dati; la password non passa mai dall'app. Senza estensione si aprono i passaggi per installarla.
   function loginViaPortal() {
     if (S.ponte.starting) return;
-    if (autoBridge()) startSync({ auto: true });
-    else startPonteSetup("login");
+    if (!autoBridge()) { startPonteSetup("login"); return; }
+    // Se il giro non torna con i dati (estensione non consentita sul portale, dati negli appunti) l'app si riapre
+    // su «Accesso dal portale», con la spiegazione, il preferito e «Incolla».
+    S.ponte.from = "login";
+    writeJSON(KEYS.phase, { mode: "bridge", phase: "ponte", bm: false });
+    startSync({ auto: true });
   }
   // Il portale ha i servizi per app attivi? Solo allora l'accesso con email e password o con la chiave può funzionare.
   function probeServices() {
@@ -838,7 +842,7 @@
   // Facoltativo: all'apertura, con il ponte automatico e dati più vecchi di un'ora, aggiorna da solo.
   // Mai subito dopo un ritorno dal portale o un tentativo recente, così non può ripartire in cerchio.
   function maybeAutoSync() {
-    if (!S.autoSync || S.mode !== "bridge" || S.phase !== "app" || !PB.snap || !autoBridge()) return;
+    if (!S.autoSync || S.mode !== "bridge" || S.phase !== "app" || !PB.snap || !autoBridge() || navigator.onLine === false) return;
     if (S.ponte.incoming || S.ponte.starting || importing || S.alert || S.sync || S.ctx || document.visibilityState !== "visible") return;
     if (Date.now() - PB.snap.at < C.PONTE.autoAfter) return;
     var p = readJSON(KEYS.ponteReq, null), last = readJSON(KEYS.ponteLast, null);
@@ -1422,7 +1426,7 @@
     var touch = /iPhone|iPad|iPod|Android/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
     function steps(list) { return '<div class="cell"><ol class="steps">' + list.map(function (t) { return "<li>" + t + "</li>"; }).join("") + "</ol></div>"; }
     function text(t) { return '<div class="cell"><span class="s">' + t + "</span></div>"; }
-    var auto = autoBridge(), verified = autoVerified(), first = !PB.snap && !loadSnap();
+    var auto = autoBridge(), verified = autoVerified(), first = !PB.snap && !loadSnap(), stuck = auto && autoStuck();
     var homeIcon = "Icona sulla schermata Home: in Safari tocca Condividi → Aggiungi alla schermata Home e spegni «Apri come app web» (iOS 26). L'icona apre l'app in Safari, dove il ponte automatico funziona; come in Safari, i dati restano se apri l'app almeno una volta ogni 7 giorni. " +
       "Un'icona aperta come app web ha un archivio suo: passando all'icona di Safari serve un aggiornamento, e le modifiche ancora da inviare vanno inviate prima dalla vecchia icona.";
     var bookmark = group("Preferito · 1 · Copia il codice",
@@ -1463,9 +1467,11 @@
           '<span class="s">' + (first ? "Tocca «Accedi»: si apre la pagina ufficiale del portale, se serve accedi (Safari può compilare email e password), e l'app si riapre da sola con i tuoi dati."
             : "«Aggiorna dal portale» apre il portale, legge i dati e torna qui da solo. Se ci sono modifiche da inviare, il pannello sul portale chiede una conferma.") + "</span></span></div>") +
         noticeGroup(S.ponte.note) +
+        (stuck ? noticeGroup("L'accesso non è tornato con i dati. Se sei rimasto sulla pagina del portale, lì tocca il pulsante a sinistra dell'indirizzo → Userscripts e consenti sempre l'accesso (meglio su tutti i siti web), poi torna qui e riprova. Intanto puoi usare il preferito qui sotto.") : "") +
+        (awaitingPaste() && pendingRequest().ret === "clip" ? '<div class="group"><button class="btn-secondary" data-a="sync-paste">' + ic("copy") + "Incolla i dati copiati dal portale</button></div>" : "") +
         '<div class="group"><button class="btn-primary" data-a="sync-now"' + (S.ponte.starting ? " disabled" : "") + ">" +
           (S.ponte.starting ? spinner() + "Apro il portale…" : ic(first ? "personKey" : "globe") + (first ? "Accedi" : "Aggiorna dal portale")) + "</button></div>" +
-        (verified ? "" : group("Se resti sul portale", text("Se dopo l'accesso resti sulla pagina del portale senza tornare qui, su quella pagina tocca il pulsante a sinistra dell'indirizzo → <b>Userscripts</b> e consenti sempre l'accesso (meglio su tutti i siti web), poi torna qui e riprova."))) +
+        (verified || stuck ? "" : group("Se resti sul portale", text("Se dopo l'accesso resti sulla pagina del portale senza tornare qui, su quella pagina tocca il pulsante a sinistra dell'indirizzo → <b>Userscripts</b> e consenti sempre l'accesso (meglio su tutti i siti web), poi torna qui e riprova."))) +
         bookmarkToggle + paste + '<p class="hint">' + homeIcon + "</p>";
     } else {
       body = group("", text("Per accedere dall'app serve, una volta sola, il <b>ponte automatico</b>: l'estensione gratuita Userscripts per Safari con il nostro script. Sulla pagina del portale in cui sei entrato legge corsi, scadenze e avvisi e li riporta qui. La password la scrivi solo sul portale.")) +
@@ -1612,7 +1618,8 @@
         : "Una volta sola serve l'estensione gratuita Userscripts per Safari: tocca «Accedi» e segui i passaggi (un paio di minuti). Dopo, «Accedi» apre la pagina ufficiale del portale e ti riporta qui con i tuoi dati.";
       body = brand + noticeGroup(S.notice) +
         group("", '<div class="cell"><span class="s">' + esc(how) + "</span></div>",
-          "La password la scrivi solo sulla pagina del portale: l'app non la vede e non la salva.") +
+          services ? "Con «Accedi» la password la scrivi solo sulla pagina del portale e l'app non la vede. Con «Accedi con le credenziali» la mandi al portale dall'app, senza salvarla."
+            : "La password la scrivi solo sulla pagina del portale: l'app non la vede e non la salva.") +
         '<div class="group"><button class="btn-primary" data-a="login-portal"' + (starting ? " disabled" : "") + ">" +
           (starting ? spinner() + "Apro il portale…" : ic("personKey") + "Accedi") + "</button></div>" +
         (services ? group("Il portale accetta anche l'accesso dalle app", '<div class="cell"><span class="s">' + esc(L.diag.text) + "</span></div>") + seg + form +
@@ -2164,12 +2171,16 @@
       return;
     }
     // Con il ponte niente rete: si ridisegna (per l'invito a incollare i dati copiati dal portale).
-    if (S.mode === "bridge") { if (S.phase === "app" && !S.alert && !S.ctx) { render(); maybeAutoSync(); } }
+    if (S.mode === "bridge" || S.phase === "ponte") {
+      if (S.phase === "app" && !S.alert && !S.ctx) { render(); maybeAutoSync(); }
+      else if (S.phase === "ponte" && !S.alert) render();
+    }
     else if (S.phase === "app" && (!S.data.lastUpdated || Date.now() - S.data.lastUpdated > 5 * 60e3)) refreshAll();
     checkUpdateIfNeeded();
   });
+  window.addEventListener("online", function () { if (document.visibilityState === "visible") maybeAutoSync(); });
   // Tornando indietro dal portale Safari ripristina la pagina com'era: si ridisegna per l'avviso del giro non concluso.
-  window.addEventListener("pageshow", function (ev) { if (ev.persisted) { S.ponte.starting = false; S.ponte.incoming = false; if (S.mode === "bridge") render(); } });
+  window.addEventListener("pageshow", function (ev) { if (ev.persisted) { S.ponte.starting = false; S.ponte.incoming = false; render(); } });
   // Lo script del ponte automatico arriva a pagina caricata: si ridisegna (un tocco) e, se scelto, si aggiorna da solo.
   function autoDetected() {
     if (S.phase === "app" || S.phase === "ponte" || S.phase === "login") render();

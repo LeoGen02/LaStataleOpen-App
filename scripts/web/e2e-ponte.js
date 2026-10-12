@@ -357,7 +357,8 @@ async function setup(context) {
   // A fine caricamento (@run-at document-end), con GM.getValue/setValue/deleteValue condivisi tra le pagine.
   portal = createPortal();
   const gm = new Map();
-  async function autoPage() {
+  // onlyApp: l'estensione consentita solo sulla pagina dell'app e non sul portale (permesso per sito in Safari).
+  async function autoPage(onlyApp) {
     const page2 = await newPage(false);
     const context = page2.context();
     await context.exposeBinding("__statale_gm", (source, op, key, value) => {
@@ -369,7 +370,7 @@ async function setup(context) {
     await context.addInitScript({ content: "(function(){" +
       "var GM={getValue:function(k,d){return window.__statale_gm('get',k).then(function(v){return v==null?d:v;});}," +
       "setValue:function(k,v){return window.__statale_gm('set',k,v);},deleteValue:function(k){return window.__statale_gm('del',k);}};" +
-      "var run=function(){(function(GM){\n" + USERSCRIPT + "\n})(GM);};" +
+      "var run=function(){" + (onlyApp ? "if(location.hostname!=='leogen02.github.io')return;" : "") + "(function(GM){\n" + USERSCRIPT + "\n})(GM);};" +
       "if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);else run();})();" });
     return page2;
   }
@@ -537,6 +538,22 @@ async function setup(context) {
     await expectText(auto, "Dati aggiornati");
     await auto.click('[data-tab="altro"]');
     await auto.click('[data-a="switch"][data-key="autoReturn"]');
+  });
+
+  const half = await autoPage(true);
+  await half.goto(APP);
+  await check(half, "estensione non consentita sul portale: «Accedi» non torna, riaprendo l'app spiegazione, preferito e «Incolla»", async () => {
+    await expectText(half, "pagina ufficiale del portale");
+    await half.click('[data-a="login-portal"]');
+    await half.waitForURL((u) => u.toString().startsWith(ORIGIN + "/"), { timeout: 10000 });
+    await half.waitForTimeout(1200);
+    if (!half.url().startsWith(ORIGIN + "/")) throw new Error("tornato all'app senza il ponte sul portale");
+    await half.goto(APP);
+    await expectText(half, "non è tornato con i dati");
+    await expectText(half, "consenti sempre l'accesso");
+    for (const a of ["ponte-bookmark", "sync", "sync-now"]) if (!(await half.locator('[data-a="' + a + '"]').count())) throw new Error("manca " + a);
+    await shot(half, "p7-accesso-non-tornato");
+    gm.clear();
   });
 
   await check(page, "senza estensione: «Aggiorna dal portale» apre i passaggi del preferito", async () => {
