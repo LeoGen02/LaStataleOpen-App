@@ -1,0 +1,50 @@
+# Diagnostica del portale: come accettano l'accesso le app? Solo indirizzi pubblici, nessuna credenziale.
+# Actions → Controllo del portale → Run workflow; il risultato è nel log del job.
+name: Controllo del portale
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/portal-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Configurazione pubblica del portale
+    runs-on: ubuntu-latest
+    steps:
+      - name: Risposte del portale
+        env:
+          P: https://lastataleopen.myariel.unimi.it
+          ORIGIN: https://leogen02.github.io
+        run: |
+          show() { echo; echo "=================== $1"; }
+          show "token.php?appsitecheck=1 (servizi per app attivi?)"
+          curl -sS -i --max-time 25 -H "Origin: $ORIGIN" "$P/login/token.php?appsitecheck=1" | grep -viE "^(set-cookie|x-|date|server|expires|pragma|cache-control):" | head -n 30 || true
+          show "server.php con chiave non valida (protocollo REST attivo? CORS?)"
+          curl -sS -i --max-time 25 -H "Origin: $ORIGIN" -X POST "$P/webservice/rest/server.php" \
+            -d "wstoken=00000000000000000000000000000000&wsfunction=core_webservice_get_site_info&moodlewsrestformat=json" \
+            | grep -viE "^(set-cookie|x-|date|server|expires|pragma|cache-control):" | head -n 30 || true
+          show "tool_mobile_get_public_config (tipo di accesso per le app)"
+          curl -sS --max-time 25 -X POST "$P/lib/ajax/service-nologin.php?info=tool_mobile_get_public_config&lang=it" \
+            -H "Content-Type: application/json" -d '[{"index":0,"methodname":"tool_mobile_get_public_config","args":{}}]' \
+            | python3 -c 'import json,sys
+          raw=sys.stdin.read()
+          try:
+              data=json.loads(raw)
+              d=data[0].get("data") or data[0]
+              keep=["sitename","release","version","enablewebservices","enablemobilewebservice","typeoflogin","launchurl","identityproviders","authloginviaemail","tool_mobile_qrcodetype","maintenanceenabled","tool_mobile_disabledfeatures","httpswwwroot"]
+              print(json.dumps({k:d.get(k) for k in keep if k in d}, indent=2, ensure_ascii=False))
+              if data[0].get("error"): print("errore:", json.dumps(data[0], ensure_ascii=False)[:800])
+          except Exception as e:
+              print("risposta non JSON:", raw[:800])' || true
+          show "launch.php senza accesso (dove rimanda?)"
+          curl -sS -o /dev/null -w "HTTP %{http_code} → %{redirect_url}\n" --max-time 25 "$P/admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=123&urlscheme=stataleopen" || true
+          show "login/index.php (dove rimanda?)"
+          curl -sS -o /dev/null -w "HTTP %{http_code} → %{redirect_url}\n" --max-time 25 "$P/login/index.php" || true
+          show "token.php con credenziali inventate (che errore dà?)"
+          curl -sS --max-time 25 -X POST "$P/login/token.php" -d "username=prova.inesistente&password=x&service=moodle_mobile_app" | head -c 600 || true
+          echo
