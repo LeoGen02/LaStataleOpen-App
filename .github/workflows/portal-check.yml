@@ -7,6 +7,7 @@ on:
   push:
     paths:
       - '.github/workflows/portal-check.yml'
+      - 'docs/ponte/**'
 
 permissions:
   contents: read
@@ -56,3 +57,34 @@ jobs:
           show "token.php con credenziali inventate (che errore dà?)"
           curl -sS --max-time 25 -X POST "$P/login/token.php" -d "username=prova.inesistente&password=x&service=moodle_mobile_app" | head -c 600 || true
           echo
+
+  ponte:
+    name: Ponte pubblicato su GitHub Pages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Il preferito carica il ponte con l'impronta SHA-384 e crossorigin: il file pubblicato deve essere identico
+      # a quello del repository e avere Access-Control-Allow-Origin. Aspetta la pubblicazione (fino a 10 minuti).
+      - name: Impronta e CORS del ponte pubblicato
+        env:
+          PAGES: https://leogen02.github.io/LaStataleOpen-App/
+        run: |
+          FILE=$(sed -nE 's/^ *file: "(ponte\/ponte-[0-9]+\.js)".*/\1/p' docs/core.js | head -n 1)
+          WANT=$(sed -nE 's/^ *sri: "(sha384-[^"]+)".*/\1/p' docs/core.js | head -n 1)
+          LOCAL="sha384-$(openssl dgst -sha384 -binary "docs/$FILE" | base64 -w0)"
+          echo "file $FILE · impronta attesa $WANT"
+          [ "$LOCAL" = "$WANT" ] || { echo "::error::docs/$FILE non corrisponde all'impronta in docs/core.js"; exit 1; }
+          for i in $(seq 1 30); do
+            HEADERS=$(curl -sS -D - -o ponte.js --max-time 25 "$PAGES$FILE?controllo=$i" || true)
+            GOT="sha384-$(openssl dgst -sha384 -binary ponte.js | base64 -w0)"
+            CORS=$(echo "$HEADERS" | grep -i '^access-control-allow-origin:' | tr -d '\r' || true)
+            if [ "$GOT" = "$WANT" ]; then
+              echo "pubblicato: $GOT"
+              echo "${CORS:-nessuna intestazione CORS}"
+              echo "$CORS" | grep -q '\*' || { echo "::error::GitHub Pages non manda Access-Control-Allow-Origin: il preferito non potrebbe caricare il ponte"; exit 1; }
+              exit 0
+            fi
+            echo "tentativo $i: pubblicato ancora $GOT, attendo…"; sleep 20
+          done
+          echo "::error::Dopo 10 minuti GitHub Pages serve un ponte diverso da quello del repository"; exit 1

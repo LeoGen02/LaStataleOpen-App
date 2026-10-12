@@ -1,6 +1,6 @@
 // Statale Open — service worker: l'app si apre anche senza rete e si aggiorna da sola.
 // Solo i file dell'app passano da qui; le richieste al portale e a GitHub vanno sempre in rete.
-var CACHE = "statale-open-v1.2.0";
+var CACHE = "statale-open-v1.3.0";
 var SHELL = ["./", "index.html", "app.css", "core.js", "app.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", function (event) {

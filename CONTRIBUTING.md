@@ -63,6 +63,14 @@ L'app web sta in `docs/` ed è statica: `index.html`, `app.css`, `core.js` (logi
 - **Pubblicarla**: *Settings → Pages → Build and deployment → Deploy from a branch*, cartella **`/docs`**, sul branch da pubblicare (di norma `main`).
   GitHub Pages gratuito richiede il repository pubblico. L'indirizzo è `https://<utente>.github.io/<repository>/`.
 - **Copia per claude.ai**: `python3 scripts/web/build_embedded.py uscita.html` crea un file unico con gli stessi sorgenti che funziona solo con i dati di esempio.
+- **Ponte** (`docs/ponte/ponte-N.js`): i file pubblicati sono **immutabili**, perché i preferiti già installati ne controllano l'impronta.
+  Per una correzione crea `ponte-(N+1).js`, aggiorna `PONTE` in `docs/core.js` (`file`, `sri`, `version`, la nuova voce in `known`;
+  alza `min` solo se il vecchio non va più bene) e l'app chiederà di reinstallare il preferito. Impronta:
+  `echo "sha384-$(openssl dgst -sha384 -binary docs/ponte/ponte-2.js | base64 -w0)"`. `.gitattributes` tiene i byte identici.
+  Test: `node --test scripts/web/*.test.js` (logica, sicurezza statica, impronte) e `node scripts/web/e2e-ponte.js` (portale simulato in
+  `scripts/web/mock-portal.js`, preferito eseguito con il controllo SRI vero). Dopo il push *Controllo del portale* verifica la copia su Pages.
+  Da provare a mano su un iPhone: preferito toccato dalla griglia dei Preferiti, *Incolla e vai*, ritorno all'app nell'indirizzo, *Incolla i dati*
+  dalla schermata Home.
 - La versione in `docs/app.js` (`APP.version`) e la cache in `docs/sw.js` (`statale-open-vX.Y.Z`) devono coincidere con `MARKETING_VERSION`: la CI lo controlla.
 
 ## Fork

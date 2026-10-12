@@ -11,16 +11,21 @@ corsi con lezioni, esercizi ed e-tivity, scadenze con promemoria, avvisi del por
 
 ## App web (senza installare nulla)
 
-**[leogen02.github.io/LaStataleOpen-App](https://leogen02.github.io/LaStataleOpen-App/)** — la stessa app, dal browser del telefono o del computer.
-Si collega al portale con gli stessi servizi Moodle dell'app iPhone; in Safari *Condividi → Aggiungi alla schermata Home* la apre a tutto schermo con la sua icona.
+**[leogen02.github.io/LaStataleOpen-App](https://leogen02.github.io/LaStataleOpen-App/)** — la stessa app, dal browser del telefono o del computer,
+con i tuoi corsi, scadenze e avvisi veri. In Safari *Condividi → Aggiungi alla schermata Home* la apre a tutto schermo con la sua icona.
 
-- **Accesso** con email e password di Ateneo (come l'app Moodle ufficiale) oppure con la *chiave dell'app* presa da *Preferenze → Chiavi di sicurezza* del portale.
-  Funziona solo se il portale ha i servizi per app attivi; altrimenti (oggi è così) la *modalità web* apre direttamente le sue pagine
-  e per le schede native serve l'app iPhone, che usa la sessione del sito. *Verifica il collegamento* dice subito quale strada funziona.
-- **Differenze dall'app iPhone**, dovute al browser: le pagine del portale si aprono in una nuova scheda invece che nel browser interno;
-  la password non viene salvata (niente Portachiavi); i promemoria si aggiungono al Calendario con un file `.ics` (stessi avvisi 24 h e 2 h prima)
-  perché un sito non può notificare ad app chiusa.
-- **Dati di esempio**: *Prova con i dati di esempio* mostra tutte le funzioni senza account.
+- **Ponte con il portale.** Il portale ha i servizi per app spenti e il browser non lascia a una pagina di `github.io` leggere le sue.
+  Il ponte è un preferito di Safari, «Statale Open», che tocchi su una pagina del portale in cui sei già entrato: legge corsi, sezioni e attività,
+  scadenze, avvisi e percorsi con `lib/ajax/service.php` (lo stesso canale delle pagine del portale) e riporta i dati all'app.
+  Installazione una volta sola, poi 3 tocchi per aggiornare in Safari: **[guida passo passo](docs/INSTALLAZIONE.md#app-web-con-il-ponte-consigliata-per-iniziare)**.
+- **Modifiche in attesa**: avvisi letti e attività completate partono al prossimo aggiornamento, dopo una conferma nel pannello del ponte.
+- **Sicurezza**: il preferito carica solo `docs/ponte/ponte-1.js` con la sua impronta SHA-384 (Subresource Integrity: se il file cambia
+  il browser non lo esegue); il ponte non legge cookie né password, chiama solo sette funzioni Moodle elencate nel codice e consegna i dati
+  solo all'app (indirizzo, appunti o file). Dettagli in [SECURITY](SECURITY.md#ponte-con-il-portale-app-web).
+- **Altri accessi**: email e password o *chiave dell'app* (se il portale riattiva i servizi per app), *modalità web* (pagine del portale)
+  e *dati di esempio* per provare tutto senza account.
+- **Differenze dall'app iPhone**, dovute al browser: i dati si aggiornano quando tocchi il preferito, non da soli; le pagine del portale
+  si aprono in una nuova scheda; i promemoria si aggiungono al Calendario con un file `.ics` (stessi avvisi 24 h e 2 h prima).
 
 L'app web sta in `docs/` ed è pubblicata con GitHub Pages (vedi [CONTRIBUTING](CONTRIBUTING.md#app-web)).
 
@@ -99,8 +104,9 @@ con completamento: se il completamento è automatico, il portale lo rifiuta e l'
 
 **Modalità web:** resta disponibile come riserva (le schede mostrano direttamente le pagine del sito, con login automatico).
 
-L'app web non può usare la sessione del sito: il browser non lascia a una pagina su `github.io` leggere le pagine di un altro sito
-in cui sei entrato. Con i servizi per app disattivati, dall'app web restano la modalità web e i dati di esempio.
+L'app web non può usare la sessione del sito da `github.io`: il browser non lascia a una pagina leggere le pagine di un altro sito.
+Per questo c'è il **ponte** (`docs/ponte/ponte-1.js`): gira sulla pagina del portale, avviato da un preferito, con le stesse funzioni
+della sessione del sito dell'app iPhone, e consegna i dati all'app web.
 
 ## Per chi sviluppa
 
@@ -117,6 +123,7 @@ StataleOpen/
   Resources/           Assets.xcassets (icona, colore), PrivacyInfo.xcprivacy
 StataleOpenTests/      test unitari (classificazione, HTML, link, token, sessione del sito, promemoria, versioni)
 docs/                  app web (index.html, app.js, core.js, app.css, service worker, manifest) e guida all'installazione
+docs/ponte/            ponte con il portale: file immutabili, caricati dal preferito con l'impronta SHA-384
 scripts/               selezione del simulatore, note di rilascio, sorgente AltStore, test e build dell'app web
 .github/workflows/     ci.yml (test + build a ogni push/PR), release.yml (pubblicazione), _test.yml, _build.yml
 ```

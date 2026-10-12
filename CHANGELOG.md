@@ -9,6 +9,14 @@ e la descrizione dell'aggiornamento in AltStore e SideStore.
 ## [Non rilasciato]
 
 ### Aggiunto
+- **Ponte con il portale** nell'app web: un preferito di Safari, «Statale Open», toccato su una pagina del portale in cui sei entrato,
+  legge corsi, sezioni e attività, scadenze, avvisi e percorsi e li riporta all'app (nell'indirizzo, dagli appunti o da un file).
+  Funziona con i servizi per app spenti. Avvisi letti e attività completate restano *da inviare* e arrivano al portale al prossimo
+  aggiornamento, dopo una conferma. Il preferito carica il ponte con l'impronta SHA-384 (Subresource Integrity); file immutabili e verificati dalla CI.
+- App web: schermata di installazione del preferito, *Aggiorna dal portale* in Home e nel trascinamento verso il basso, sezione
+  *Altro → Ponte con il portale* (modifiche in attesa, ritorno automatico, reinstallazione, codice del ponte), Content-Security-Policy.
+- Test del ponte: logica e sicurezza (`node --test`) e prova completa nel browser con il portale simulato, anche nella CI;
+  *Controllo del portale* verifica impronta e CORS del ponte pubblicato su GitHub Pages.
 - **Sessione del sito** nell'app iPhone: con i servizi per app disattivati sul portale (come su La Statale Open) l'app funziona lo stesso.
   Dopo il login di Ateneo legge corsi, sezioni e attività, scadenze e avvisi con la sessione del sito (`lib/ajax/service.php`, come le pagine
   del portale), segna le attività come completate e, quando la sessione scade, rifà il login da sola in una pagina invisibile.
@@ -19,7 +27,7 @@ e la descrizione dell'aggiornamento in AltStore e SideStore.
 - Test dell'app web: logica condivisa (`node --test`) e prova completa nel browser con il portale simulato, anche nella CI.
 
 ### Modificato
-- App web: con i servizi per app disattivati spiega che il browser non le lascia leggere il portale e rimanda all'app iPhone.
+- App web: l'accesso parte dal ponte; email e password e chiave dell'app sono in *Altri modi di accesso* (servono i servizi per app).
 
 ## [1.2.0] - 2026-10-12
 

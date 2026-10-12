@@ -1,7 +1,9 @@
 /*
  * Statale Open — app web.
- * Stesse schermate e stessa logica dell'app iPhone (StataleOpen/), con due fonti di dati:
- *   - il portale vero, tramite gli stessi web service Moodle dell'app (MoodleClient.swift);
+ * Stesse schermate e stessa logica dell'app iPhone (StataleOpen/), con tre fonti di dati:
+ *   - il ponte con il portale (docs/ponte/): l'ultima lettura fatta da un preferito di Safari sulla pagina del portale,
+ *     la strada per La Statale Open, che ha i servizi per app spenti;
+ *   - il portale vero, tramite gli stessi web service Moodle dell'app (MoodleClient.swift), se li riattiva;
  *   - i dati di esempio, per provare l'app senza account o dentro claude.ai (dove il portale è bloccato).
  */
 (function () {
@@ -9,7 +11,7 @@
 
   var C = window.StataleCore;
   var EMBEDDED = !!window.STATALE_EMBEDDED; // copia dentro claude.ai: nessuna richiesta verso siti esterni
-  var APP = { version: "1.2.0", repo: "LeoGen02/LaStataleOpen-App", webURL: "https://leogen02.github.io/LaStataleOpen-App/" };
+  var APP = { version: "1.3.0", repo: "LeoGen02/LaStataleOpen-App", webURL: "https://leogen02.github.io/LaStataleOpen-App/" };
   var REPO_URL = "https://github.com/" + APP.repo;
   var BASE = "https://lastataleopen.myariel.unimi.it/";
   var DEFAULT_PROGRAM = { id: 2, name: "SecAI" };
@@ -22,7 +24,10 @@
     network: "Il portale non ha risposto. Se sei connesso, il portale potrebbe non accettare richieste da un'app web: prova con la chiave dell'app o usa la modalità web.",
     expired: "La sessione è scaduta: accedi di nuovo.",
     unreachable: "Portale non raggiungibile: dati non aggiornati.",
-    disabled: "I servizi per le app sono disattivati sul portale e il browser non lascia a un altro sito leggere le sue pagine: da qui puoi usare la modalità web. L'app iPhone invece funziona lo stesso: entra con il login di Ateneo e legge corsi, scadenze e avvisi con la sessione del sito."
+    disabled: "I servizi per le app sono disattivati sul portale e il browser non lascia a un altro sito leggere le sue pagine: collega l'app con il ponte (un preferito di Safari) oppure usa la modalità web. L'app iPhone invece si collega da sola con la sessione del sito.",
+    ponteIntro: "Il portale non lascia leggere i tuoi dati alle app web. Con il ponte, un preferito di Safari che tocchi sulla pagina del portale in cui sei già entrato, l'app riceve corsi, scadenze e avvisi. Nessuna password viene salvata e i dati non passano da altri server.",
+    noTree: "Percorsi e cluster non ancora letti dal portale: tocca «Aggiorna dal portale» in Home, oppure apri la pagina nel portale.",
+    noContents: "Contenuti del corso non ancora letti dal portale: aggiorna dal portale o apri il corso nel portale."
   };
 
   // ---------- Icone (tratto, 24×24) ----------
@@ -89,7 +94,11 @@
   function isStandalone() { return window.matchMedia && window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true; }
 
   // Archivio locale: impostazioni, sessione e copia dei dati (come Portachiavi, UserDefaults e PortalCache).
-  var KEYS = { session: "so.session", phase: "so.phase", settings: "so.settings", update: "so.update", demo: "so.demo", toggles: "so.demo.toggles" };
+  var KEYS = {
+    session: "so.session", phase: "so.phase", settings: "so.settings", update: "so.update", demo: "so.demo", toggles: "so.demo.toggles",
+    ponteSnap: "so.ponte.snap", ponteBox: "so.ponte.outbox", ponteReq: "so.ponte.req", ponteLast: "so.ponte.last", ponteFail: "so.ponte.fail"
+  };
+  var PONTE_KEYS = [KEYS.ponteSnap, KEYS.ponteBox, KEYS.ponteReq, KEYS.ponteLast, KEYS.ponteFail];
   function readJSON(key, fallback) { try { var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; } }
   function writeJSON(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* archivio non disponibile */ } }
   function removeKey(key) { try { localStorage.removeItem(key); } catch (e) { /* archivio non disponibile */ } }
@@ -390,16 +399,89 @@
     };
   })();
 
-  // Fonte dei dati attiva: il portale o gli esempi, con le stesse funzioni.
-  function api() { return S.mode === "demo" ? Demo : Real; }
+  // ---------- Ponte con il portale (docs/ponte/ponte-1.js) ----------
+  // Il portale ha i servizi per app spenti: i dati arrivano dal ponte, uno script che l'utente avvia con il preferito
+  // «Statale Open» sulla pagina del portale. Qui niente rete: l'ultima lettura del ponte, con sopra le modifiche
+  // dell'utente (avvisi letti, attività completate) che partono al prossimo «Aggiorna dal portale».
+  var PB = { snap: null };
+  function loadSnap() { PB.snap = readJSON(KEYS.ponteSnap, null); return PB.snap; }
+  function readBox() {
+    var box = readJSON(KEYS.ponteBox, null);
+    return box && box.ops ? box : C.emptyBox(PB.snap ? PB.snap.user.id : null);
+  }
+  function writeBox(box) { writeJSON(KEYS.ponteBox, box); }
+  function pendingRequest() {
+    var p = readJSON(KEYS.ponteReq, null);
+    return p && p.rid && Date.now() - p.at < C.PONTE.reqTTL ? p : null;
+  }
+  function queueOp(op, current) {
+    var pending = pendingRequest();
+    writeBox(C.enqueueOp(readBox(), op, current, pending ? pending.keys : []));
+  }
+  function snapModule(courseId, cmid) {
+    var c = PB.snap && PB.snap.contents[courseId], found = null;
+    if (c && c.sections) c.sections.forEach(function (s) { s.m.forEach(function (m) { if (m.id === cmid) found = m; }); });
+    return found;
+  }
+  function treeCategory(c, parent) {
+    var t = PB.snap.tree;
+    return { id: c.id, name: c.n, parent: parent, coursecount: t.cats[c.id] ? t.cats[c.id].courses.length : 0 };
+  }
+  var Bridge = {
+    siteInfo: async function () { return C.toModels(PB.snap).siteInfo; },
+    courses: async function () { return C.toModels(PB.snap).courses; },
+    events: async function () { return C.toModels(PB.snap).events; },
+    notifications: async function () { return C.overlayNotifications(C.toModels(PB.snap).notifications, readBox()); },
+    markRead: async function (id) {
+      var n = PB.snap.notifs.list.filter(function (x) { return x.id === id; })[0];
+      queueOp({ k: "read", id: id, label: n ? n.s : "Avviso" }, n ? n.r : false);
+    },
+    // Uno per uno, solo quelli mostrati: mai avvisi che l'utente non ha visto.
+    markAllRead: async function () {
+      var box = readBox(), pending = pendingRequest();
+      PB.snap.notifs.list.forEach(function (n) {
+        if (!n.r) box = C.enqueueOp(box, { k: "read", id: n.id, label: n.s }, false, pending ? pending.keys : []);
+      });
+      writeBox(box);
+    },
+    categories: async function (parent) {
+      var t = PB.snap.tree;
+      if (t && parent === 0) return t.root.map(function (c) { return treeCategory(c, 0); });
+      if (t && t.cats[parent]) return t.cats[parent].subs.map(function (c) { return treeCategory(c, parent); });
+      throw wsError(MSG.noTree, "bridge-missing");
+    },
+    coursesInCategory: async function (id) {
+      var t = PB.snap.tree;
+      if (!t || !t.cats[id]) throw wsError(MSG.noTree, "bridge-missing");
+      return t.cats[id].courses.map(function (c) {
+        var mine = PB.snap.courses.filter(function (x) { return x.id === c.id; })[0];
+        return { id: c.id, name: c.n, short: mine ? mine.short : "", category: id, progress: mine ? mine.progress : null, last: 0 };
+      });
+    },
+    contents: async function (courseId) {
+      var sections = C.sectionsFor(PB.snap, courseId, readBox());
+      if (sections) return sections;
+      var c = PB.snap.contents[courseId];
+      throw wsError(c && c.err ? "Il ponte non è riuscito a leggere questo corso (" + (c.err.m || c.err.code) + "): aprilo nel portale." : MSG.noContents, "bridge-missing");
+    },
+    setCompletion: async function (cmid, completed, mo) {
+      var m = snapModule(mo.courseId, cmid);
+      queueOp({ k: "done", cm: cmid, c: mo.courseId, v: completed ? 1 : 0, label: mo.name }, m ? C.isCompleted(m.st) : null);
+    },
+    fileURL: function (url) { return url; }
+  };
+
+  // Fonte dei dati attiva: il ponte, il portale o gli esempi, con le stesse funzioni.
+  function api() { return S.mode === "demo" ? Demo : S.mode === "bridge" ? Bridge : Real; }
 
   // ---------- Stato (SessionStore, PortalData, UpdateChecker, impostazioni) ----------
   var settings = readJSON(KEYS.settings, {});
   var S = {
     phase: "checking", mode: null, client: null, siteInfo: null, notice: null,
-    login: { method: "password", user: settings.email || "", pass: "", key: "", busy: false, error: null, diag: null, checking: false },
+    login: { method: "password", user: settings.email || "", pass: "", key: "", busy: false, error: null, diag: null, checking: false, more: false },
     program: settings.program || { id: DEFAULT_PROGRAM.id, name: DEFAULT_PROGRAM.name },
     reminders: settings.reminders !== false,
+    autoReturn: settings.autoReturn !== false,
     email: settings.email || "", emailSaved: false,
     seen: settings.seen || null,
     demoNotifAuth: settings.demoNotifAuth === undefined ? null : settings.demoNotifAuth,
@@ -409,7 +491,8 @@
     sheet: null, menu: false, ql: null, ctx: null, alert: null,
     update: Object.assign({ available: null, lastCheck: null }, readJSON(KEYS.update, {}), { checking: false, result: null }),
     demo: Object.assign({ offline: false, expireNext: false, github: "new" }, readJSON(KEYS.toggles, {})),
-    copied: false, toast: null, banner: null
+    copied: false, toast: null, banner: null,
+    ponte: { from: null, copied: false, notes: [] }, sync: null
   };
   function emptyData() { return { courses: [], events: [], notifications: [], unread: 0, lastUpdated: null }; }
   function resetStacks() {
@@ -417,7 +500,7 @@
   }
   resetStacks();
   function saveSettings() {
-    writeJSON(KEYS.settings, { program: S.program, reminders: S.reminders, email: S.email, seen: S.seen, demoNotifAuth: S.demoNotifAuth });
+    writeJSON(KEYS.settings, { program: S.program, reminders: S.reminders, autoReturn: S.autoReturn, email: S.email, seen: S.seen, demoNotifAuth: S.demoNotifAuth });
   }
   function saveToggles() { writeJSON(KEYS.toggles, S.demo); }
   function saveUpdate() { writeJSON(KEYS.update, { available: S.update.available, lastCheck: S.update.lastCheck }); }
@@ -427,15 +510,27 @@
     var cached = readJSON(cacheKey(), null);
     S.data = cached && cached.courses ? cached : emptyData();
   }
-  function saveCache() { if (S.data.lastUpdated) writeJSON(cacheKey(), S.data); }
-  function savePhase() { writeJSON(KEYS.phase, { mode: S.mode, phase: S.phase === "web" ? "web" : "app" }); }
+  function saveCache() { if (S.data.lastUpdated && S.mode !== "bridge") writeJSON(cacheKey(), S.data); }
+  // Con il ponte anche la schermata di installazione: iOS ricarica spesso l'app mentre si crea il preferito in Safari.
+  function savePhase() { writeJSON(KEYS.phase, { mode: S.mode, phase: S.phase === "web" ? "web" : S.phase === "ponte" ? "ponte" : "app" }); }
 
   // ---------- Sessione (SessionStore.swift) ----------
+  // I dati del ponte arrivano anche nell'indirizzo (#ponte=…): si tolgono subito e si importano dopo l'avvio.
   async function restore() {
+    var incoming = EMBEDDED ? null : takeIncoming();
+    await restoreSession();
+    if (incoming) importText(incoming, "frag");
+  }
+  async function restoreSession() {
     var saved = readJSON(KEYS.phase, null);
-    if (!saved || (saved.mode === "real" && EMBEDDED)) { S.phase = "login"; render(); return; }
+    if (!saved || ((saved.mode === "real" || saved.mode === "bridge") && EMBEDDED)) { S.phase = "login"; render(); return; }
     S.mode = saved.mode;
     if (saved.phase === "web") { S.phase = "web"; render(); return; }
+    if (S.mode === "bridge") {
+      if (saved.phase === "ponte" || !loadSnap()) { S.phase = "ponte"; S.ponte.from = loadSnap() ? "app" : "login"; render(); return; }
+      applyBridge(); S.phase = "app"; resetStacks(); render();
+      return;
+    }
     if (S.mode === "demo") {
       S.siteInfo = await Demo.siteInfo();
       loadCache(); S.phase = "app"; resetStacks(); render();
@@ -527,6 +622,8 @@
     render();
   }
   function logout() {
+    if (S.mode === "bridge") PONTE_KEYS.forEach(removeKey);
+    PB.snap = null; S.ponte.notes = []; S.sync = null;
     clearSession();
     S.mode = null; S.siteInfo = null; S.notice = null; S.alert = null;
     S.phase = "login";
@@ -535,6 +632,7 @@
 
   // ---------- Dati (PortalData) ----------
   async function refreshAll() {
+    if (S.mode === "bridge") { if (S.phase === "app" && applyBridge()) render(); return; }
     if (S.loading || !S.siteInfo || S.phase !== "app") return;
     S.loading = true; render();
     var A = api(), reached = false;
@@ -579,10 +677,12 @@
     if (n.read) return;
     try { await api().markRead(n.id); } catch (e) { /* come l'app: si riprova al prossimo aggiornamento */ }
     await refreshNotifications(); render();
+    if (S.mode === "bridge") toast("Segnato come letto: arriva al portale al prossimo aggiornamento");
   }
   async function markAllRead() {
     try { await api().markAllRead(); } catch (e) { /* come l'app */ }
     await refreshNotifications(); render();
+    if (S.mode === "bridge") toast("Avvisi segnati come letti: arrivano al portale al prossimo aggiornamento");
   }
   function setBadge(count) {
     if (EMBEDDED || !("setAppBadge" in navigator)) return;
@@ -626,7 +726,8 @@
   }
   async function toggleCompletion(mo) {
     try {
-      await api().setCompletion(mo.id, !mo.done);
+      await api().setCompletion(mo.id, !mo.done, mo);
+      if (S.mode === "bridge") toast((mo.done ? "Attività segnata come da fare" : "Attività segnata come completata") + ": arriva al portale al prossimo aggiornamento");
       S.contents[mo.courseId] = Object.assign({}, S.contents[mo.courseId], { status: "reload" });
       ensureContents(mo.courseId);
     } catch (e) {
@@ -634,6 +735,168 @@
       S.contents[mo.courseId] = Object.assign({}, S.contents[mo.courseId], { error: e.message });
     }
     render();
+  }
+
+  // ---------- Ponte: aggiornamento e importazione ----------
+  // Dati del ponte nelle viste, con le modifiche in attesa sovrapposte. Nessuna rete.
+  function applyBridge() {
+    if (!PB.snap && !loadSnap()) return false;
+    var m = C.toModels(PB.snap), n = C.overlayNotifications(m.notifications, readBox());
+    S.siteInfo = m.siteInfo;
+    S.data = { courses: m.courses, events: m.events, notifications: n.list, unread: n.unread, lastUpdated: PB.snap.at };
+    S.contents = {}; S.cats = {}; S.programList = null; S.error = null;
+    setBadge(S.data.unread);
+    return true;
+  }
+  // Indirizzo da cui è servita l'app: il preferito carica il ponte da qui (anche da un fork).
+  function appBase() {
+    var u = "";
+    try { u = new URL("./", location.href).toString(); } catch (e) { u = ""; }
+    return /^https:\/\//.test(u) ? u : APP.webURL;
+  }
+  function takeIncoming() {
+    var m = /^#ponte=(.+)$/.exec(location.hash || "");
+    if (!m) return null;
+    try { history.replaceState(history.state, "", location.pathname + location.search); } catch (e) { location.hash = ""; }
+    return m[1];
+  }
+  function startPonteSetup(from) {
+    S.ponte.from = from; S.ponte.copied = false;
+    if (from === "login") S.mode = "bridge";
+    S.phase = "ponte"; S.notice = null; S.sync = null;
+    savePhase(); render();
+  }
+  function leavePonteSetup() {
+    if (S.ponte.from === "app" && (PB.snap || loadSnap())) { S.phase = "app"; applyBridge(); savePhase(); render(); return; }
+    S.mode = null; S.phase = "login"; removeKey(KEYS.phase); render();
+  }
+  function openSync() { S.sync = { copied: false, manual: false, note: null }; render(); }
+  // Il percorso scelto non è tra quelli letti, o la lettura ha più di 14 giorni: il ponte rilegge le pagine dei percorsi.
+  function needsTree() {
+    var t = PB.snap && PB.snap.tree;
+    return !t || !t.cats[S.program.id] || Date.now() - t.at > C.PONTE.treeTTL;
+  }
+  function startSync() {
+    var standalone = isStandalone();
+    var r = C.buildRequest(readBox(), { ret: standalone || !S.autoReturn ? "clip" : "frag", tree: needsTree() ? S.program.id : null });
+    writeJSON(KEYS.ponteReq, r.pending);
+    var url = C.requestURL(r.text);
+    if (!standalone) { location.assign(url); return; }
+    // Dalla schermata Home il preferito di Safari non è raggiungibile: l'indirizzo passa dagli appunti.
+    copyTextOk(url).then(function (ok) {
+      if (!S.sync) S.sync = {};
+      S.sync.copied = ok;
+      S.sync.url = ok ? null : url;
+      render();
+    });
+  }
+  async function pasteData() {
+    var text = null;
+    try { text = navigator.clipboard && navigator.clipboard.readText ? await navigator.clipboard.readText() : null; } catch (e) { text = null; }
+    if (!text) {
+      S.sync = Object.assign(S.sync || {}, { manual: true, note: "Non è stato possibile leggere gli appunti: tieni premuto nel riquadro e scegli «Incolla»." });
+      render();
+      return;
+    }
+    importText(text, "clip");
+  }
+  function importFailed(message) {
+    if (S.sync) { S.sync.note = message; render(); }
+    else showAlert("Dati del ponte", message, [{ label: "OK", role: "cancel" }]);
+  }
+  var importing = false;
+  async function importText(text, source) {
+    if (importing) return;
+    var found = C.findEnvelope(text);
+    if (found.kind !== "payload") { importFailed(C.ponteMessage(found.kind)); return; }
+    importing = true;
+    var snap;
+    try { snap = C.validateSnapshot(await C.decodePayload(found.env)); } catch (e) { importing = false; importFailed(e.message); return; }
+    importing = false;
+    var last = readJSON(KEYS.ponteLast, null);
+    if (last && last.sid === snap.sid) { S.sync = null; toast("Questi dati sono già stati importati"); return; }
+    var prev = readJSON(KEYS.ponteSnap, null), pending = readJSON(KEYS.ponteReq, null);
+    var matched = !!(pending && snap.res && snap.res.rid === pending.rid);
+    var who = snap.user.name || "account " + snap.user.id;
+    function ask(title, message, replace) {
+      showAlert(title, message, [{ label: "Annulla" }, { label: "Importa", role: "cancel", act: function () { commitImport(snap, replace); } }]);
+    }
+    if (prev && prev.user && prev.user.id !== snap.user.id) {
+      ask("Account diverso", "I dati sono dell'account «" + who + "», diverso da quello salvato («" + (prev.user.name || prev.user.id) + "»). Sostituirli? Le modifiche non inviate verranno eliminate.", true);
+      return;
+    }
+    if (prev && snap.at < prev.at) {
+      ask("Dati più vecchi", "Questi dati (letti " + fmtShort.format(snap.at) + ") sono più vecchi di quelli che hai (" + fmtShort.format(prev.at) + "). Importarli comunque?", false);
+      return;
+    }
+    // Un indirizzo #ponte=… che l'app non ha chiesto (per esempio un link ricevuto): prima si chiede.
+    if (source === "frag" && !matched) {
+      ask("Dati dal portale", "Importare i dati letti dal portale " + fmtShort.format(snap.at) + (snap.user.name ? " per " + snap.user.name : "") + "?", false);
+      return;
+    }
+    commitImport(snap, false);
+  }
+  // Salva i dati; se lo spazio non basta toglie i contenuti dei corsi aperti meno di recente.
+  function saveSnap(snap) {
+    var copy = snap, trimmed = false;
+    for (var i = 0; i < 80; i++) {
+      try { localStorage.setItem(KEYS.ponteSnap, JSON.stringify(copy)); return { snap: copy, trimmed: trimmed, saved: true }; } catch (e) {
+        var keys = copy.courses.slice().sort(function (a, b) { return a.last - b.last; }).map(function (c) { return String(c.id); })
+          .filter(function (k) { return copy.contents[k]; });
+        if (!keys.length) keys = Object.keys(copy.contents);
+        if (!keys.length) break;
+        copy = Object.assign({}, copy, { contents: Object.assign({}, copy.contents) });
+        delete copy.contents[keys[0]];
+        trimmed = true;
+      }
+    }
+    return { snap: snap, trimmed: false, saved: false };
+  }
+  function commitImport(snap, replace) {
+    var prev = replace ? null : readJSON(KEYS.ponteSnap, null), pending = readJSON(KEYS.ponteReq, null);
+    var box = replace ? C.emptyBox(snap.user.id) : readBox();
+    if (box.uid && box.uid !== snap.user.id) box = C.emptyBox(snap.user.id);
+    box.uid = snap.user.id;
+    var rec = C.reconcile({ box: box, snap: snap, pending: pending });
+    var merged = C.mergeSnapshot(prev, snap);
+    delete merged.res;
+    var stored = saveSnap(merged);
+    PB.snap = stored.snap;
+    writeBox(rec.box);
+    if (rec.failed.length) writeJSON(KEYS.ponteFail, readJSON(KEYS.ponteFail, []).concat(rec.failed).slice(-20));
+    writeJSON(KEYS.ponteLast, { sid: snap.sid, at: Date.now() });
+    if (rec.matched) removeKey(KEYS.ponteReq);
+    S.ponte.notes = rec.notes;
+    // Primo collegamento (o ritorno da demo, portale, modalità web): si passa ai dati del ponte.
+    if (S.mode !== "bridge" || S.phase !== "app") {
+      if (S.mode === "real") removeKey(KEYS.session);
+      S.mode = "bridge"; S.phase = "app"; S.tab = "home"; S.notice = null; S.client = null; resetStacks();
+    }
+    applyBridge(); savePhase();
+    S.sync = null; S.alert = null;
+    render();
+    var unread = S.data.unread;
+    var text = "Dati aggiornati: " + S.data.courses.length + (S.data.courses.length === 1 ? " corso, " : " corsi, ") +
+      S.data.events.length + (S.data.events.length === 1 ? " scadenza, " : " scadenze, ") +
+      (unread ? unread + (unread === 1 ? " avviso da leggere" : " avvisi da leggere") : "nessun avviso da leggere");
+    if (snap.warn.length) text += ". Non aggiornato: " + snap.warn.map(function (w) { return w.part; }).join(", ");
+    if (!stored.saved) text += ". Spazio dell'app esaurito: i dati restano solo finché l'app è aperta";
+    else if (stored.trimmed) text += ". Spazio dell'app esaurito: alcuni contenuti dei corsi non sono stati salvati";
+    if (rec.failed.length) text += ". " + rec.failed.length + (rec.failed.length === 1 ? " modifica non applicata" : " modifiche non applicate") + " (vedi Home)";
+    toast(text);
+  }
+  function readFile(file) {
+    if (!file) return;
+    if (file.size > C.PONTE.maxEnvelope + 4096) { importFailed(C.ponteMessage("toobig")); return; }
+    var reader = new FileReader();
+    reader.onload = function () { importText(String(reader.result || ""), "file"); };
+    reader.onerror = function () { importFailed("Non è stato possibile leggere il file."); };
+    reader.readAsText(file);
+  }
+  // C'è una richiesta partita da poco e ancora senza risposta: i dati potrebbero essere negli appunti.
+  function awaitingPaste() {
+    var p = pendingRequest(), last = readJSON(KEYS.ponteLast, null);
+    return !!(p && Date.now() - p.at < C.PONTE.pasteTTL && (!last || last.at < p.at));
   }
 
   // ---------- Aprire pagine, file e siti ----------
@@ -743,7 +1006,7 @@
   }
   function deviceModel() { return (/iPhone/.test(navigator.userAgent) ? "iPhone" : /iPad/.test(navigator.userAgent) ? "iPad" : "computer") + " (app web" + (isStandalone() ? ", schermata Home" : "") + ")"; }
   function diagnostics() {
-    return "Statale Open " + APP.version + " · app web" + (S.mode === "demo" ? " (dati di esempio)" : "") + "\n" + systemVersion() + " · " + deviceModel() + "\nPercorso: " + S.program.name + " (categoria " + S.program.id + ")";
+    return "Statale Open " + APP.version + " · app web" + (S.mode === "demo" ? " (dati di esempio)" : S.mode === "bridge" ? " (ponte v" + (PB.snap ? PB.snap.bv : C.PONTE.version) + ")" : "") + "\n" + systemVersion() + " · " + deviceModel() + "\nPercorso: " + S.program.name + " (categoria " + S.program.id + ")";
   }
   function issueURL(template) {
     return REPO_URL + "/issues/new?template=" + template + "&versione=" + encodeURIComponent(APP.version + " (app web)") + "&dispositivo=" + encodeURIComponent(systemVersion() + " · " + deviceModel());
@@ -808,11 +1071,13 @@
   function moduleRow(mo) {
     if (mo.mod === "label") return mo.description ? '<div class="cell"><span class="s">' + esc(mo.description) + "</span></div>" : "";
     var k = KIND[mo.kind] || KIND.other;
-    var trailing = mo.completion ? '<span class="check" style="color:' + (mo.done ? "var(--green)" : "var(--gray)") + '" aria-label="' + (mo.done ? "Completata" : "Da completare") + '">' + (mo.done ? checkFilled() : ic("circle")) + "</span>" : "";
+    var state = (mo.done ? "Completata" : "Da completare") + (mo.pending ? ", da inviare al portale" : "");
+    var trailing = mo.completion ? '<span class="check" style="color:' + (mo.done ? "var(--green)" : "var(--gray)") + '" aria-label="' + state + '">' + (mo.done ? checkFilled() : ic("circle")) + "</span>" : "";
     return '<div class="cell indent" role="button" tabindex="0" data-a="module" data-m="' + mo.id + '" data-c="' + mo.courseId + '" data-long="' + mo.id + '">' +
       '<span class="ic" style="color:' + k.color + '">' + ic(MODICON[mo.mod] || k.icon) + "</span>" +
       '<span class="cell-main"><span class="t">' + esc(mo.name) + '</span><span class="s">' + k.title + (mo.modplural ? " · " + esc(mo.modplural) : "") + "</span>" +
       (mo.due ? '<span class="s ' + (mo.due < Date.now() ? "" : "orange") + '">🕒 ' + esc(fmtShort.format(mo.due)) + "</span>" : "") +
+      (mo.pending ? '<span class="s orange">' + (mo.done ? "Completata" : "Da fare") + " · da inviare al portale</span>" : "") +
       "</span>" + trailing + "</div>";
   }
   function findModule(courseId, id) {
@@ -834,6 +1099,7 @@
         (S.update.available ? group("", '<a class="cell accent-row" href="' + esc(S.update.available.url) + '" target="_blank" rel="noopener">' + ic("down") +
           '<span class="t">È disponibile la versione ' + esc(S.update.available.version) + ": tocca per scaricarla</span></a>") : "") +
         noticeGroup(S.error || S.notice) +
+        ponteHomeGroup() +
         group("Prossime scadenze", upcoming.length ? upcoming.map(eventRow).join("") :
           '<div class="cell empty">' + (firstLoad ? "Caricamento…" : "Nessuna scadenza imminente 🎉") + "</div>") +
         group("Ripresa rapida", S.data.courses.length ? S.data.courses.slice(0, 5).map(courseRow).join("") :
@@ -875,7 +1141,8 @@
       var overdue = all.filter(function (e) { return e.t < today; });
       var days = {};
       all.filter(function (e) { return e.t >= today; }).forEach(function (e) { var k = C.startOfDay(e.t); (days[k] = days[k] || []).push(e); });
-      var body = ptr() + noticeGroup(S.error);
+      var body = ptr() + noticeGroup(S.error) +
+        (S.mode === "bridge" && PB.snap && C.staleness(PB.snap.at) !== "fresh" ? noticeGroup("Dati del portale letti " + C.relative(PB.snap.at) + ": le scadenze potrebbero essere cambiate. Aggiorna dal portale.") : "");
       if (!all.length) body += '<div class="unavailable">' + ic("calcheck") + '<div class="t">' + (S.loading ? "Caricamento…" : "Nessuna scadenza") + "</div><div>Qui compaiono quiz, consegne ed e-tivity con una data di scadenza.</div></div>";
       if (overdue.length) body += group(ic("exclam") + "Scadute di recente", overdue.map(eventRow).join(""), "", "red");
       Object.keys(days).map(Number).sort(function (a, b) { return a - b; }).forEach(function (k) { body += group(esc(C.dayTitle(k)), days[k].map(eventRow).join("")); });
@@ -891,9 +1158,10 @@
         return '<div class="swipe" data-swipe="' + n.id + '">' + (n.read ? "" : '<button class="swipe-action" data-a="mark-read" data-id="' + n.id + '">Letto</button>') +
           '<button class="cell" data-a="notif" data-id="' + n.id + '"><span class="dot' + (n.read ? " off" : "") + '"></span><span class="cell-main">' +
           '<span class="t' + (n.read ? "" : " b") + '">' + esc(n.subject) + "</span>" + (n.ctx ? '<span class="s clip">' + esc(n.ctx) + "</span>" : "") +
-          '<span class="s">' + esc(C.relative(n.t)) + "</span></span></button></div>";
+          '<span class="s">' + esc(C.relative(n.t)) + (n.pending ? ' <span class="tag">da inviare</span>' : "") + "</span></span></button></div>";
       }).join("");
-      var body = ptr() + (list.length ? group("", rows) + '<p class="hint">Scorri un avviso verso sinistra per segnarlo come letto.</p>' :
+      var body = ptr() + (list.length ? group("", rows) + '<p class="hint">Scorri un avviso verso sinistra per segnarlo come letto.' +
+        (S.mode === "bridge" ? " Le modifiche arrivano al portale al prossimo aggiornamento." : "") + "</p>" :
         '<div class="unavailable">' + ic("bellSlash") + '<div class="t">Nessun avviso</div><div>Annunci dei docenti, valutazioni e messaggi del forum compariranno qui.</div></div>');
       return { title: "Avvisi", ptr: true, swipe: true, body: body, trailing: S.data.unread ? '<button class="link" data-a="read-all">Segna tutti letti</button>' : "" };
     },
@@ -903,11 +1171,13 @@
       var body = (info ? group("Account", labeled("Studente", info.fullname) + (info.username ? labeled("Utente", info.username) : "") + labeled("Portale", info.sitename || C.MOODLE_HOST)) : "") +
         group("", '<button class="cell" data-a="push" data-v="program" data-title="Percorso"><span class="t">Percorso</span><span class="cell-main"></span><span class="value">' + esc(S.program.name) + "</span>" + ic("chevR", ' class="chev"') + "</button>",
           "Il percorso mostrato nella scheda Corsi.") +
-        credentialsSection() + remindersSection() +
+        (S.mode === "bridge" ? ponteSection() : credentialsSection()) + remindersSection() +
         group("Portale", openRow("Apri il portale completo", "", BASE + "my/") + openRow("Profilo", "", BASE + "user/profile.php") + openRow("Messaggi", "", BASE + "message/index.php")) +
         aboutSection() +
         group("", '<button class="cell destructive centered" data-a="logout"><span class="t">' + (S.mode === "demo" ? "Esci dalla demo" : "Esci") + "</span></button>",
-          S.mode === "demo" ? "Torni alla schermata di accesso. I dati di esempio restano finché non ripristini la demo." : "Uscendo vengono cancellati la chiave dell'app e i dati salvati del portale. L'email resta finché non la rimuovi.") +
+          S.mode === "demo" ? "Torni alla schermata di accesso. I dati di esempio restano finché non ripristini la demo."
+            : S.mode === "bridge" ? "Uscendo vengono cancellati i dati letti dal portale e le modifiche non inviate. Il preferito «Statale Open» resta in Safari: puoi eliminarlo da Segnalibri → Modifica."
+            : "Uscendo vengono cancellati la chiave dell'app e i dati salvati del portale. L'email resta finché non la rimuovi.") +
         (S.mode === "demo" ? demoSection() : "");
       return { title: "Altro", body: body };
     },
@@ -972,6 +1242,117 @@
     if (!html) html = group("", '<div class="cell empty">Nessuna attività</div>');
     return html + '<p class="hint">Tieni premuta un\'attività per aprirne la pagina o segnarla come completata.</p>';
   };
+
+  // ---------- Ponte: pezzi delle viste ----------
+  function opLabel(op) {
+    var name = op.label ? "«" + op.label + "»" : (op.k === "read" ? "avviso " + op.id : "attività " + op.cm);
+    return op.k === "read" ? "Avviso letto: " + name : (op.v === 1 ? "Completata: " : "Da fare: ") + name;
+  }
+  function failures() { return readJSON(KEYS.ponteFail, []); }
+  function failureCells() {
+    return failures().map(function (f, i) {
+      return '<div class="cell notice">' + ic("warn") + '<span class="cell-main"><span>Modifica non applicata' + (f.label ? ": «" + esc(f.label) + "»" : "") +
+        (f.m ? " – " + esc(f.m) : "") + '</span></span><button class="link" data-a="fail-dismiss" data-i="' + i + '">OK</button></div>';
+    }).join("");
+  }
+  function ponteHomeGroup() {
+    if (S.mode !== "bridge" || !PB.snap) return "";
+    var n = C.pendingOps(readBox()).length, age = C.staleness(PB.snap.at);
+    var sub = "Dati letti " + C.relative(PB.snap.at) + (n ? " · " + n + (n === 1 ? " modifica da inviare" : " modifiche da inviare") : "");
+    var rows = (awaitingPaste() ? '<button class="cell accent-row" data-a="sync-paste">' + ic("copy") + '<span class="cell-main"><span class="t">Incolla i dati copiati dal portale</span></span></button>' : "") +
+      '<button class="cell accent-row" data-a="sync">' + ic("refresh") + '<span class="cell-main"><span class="t">Aggiorna dal portale</span><span class="s' + (age === "fresh" ? "" : " orange") + '">' + esc(sub) + "</span></span>" + ic("chevR", ' class="chev"') + "</button>" +
+      (age === "old" ? '<div class="cell notice">' + ic("warn") + "<span>Dati del portale letti " + esc(C.relative(PB.snap.at)) + ": aggiorna dal portale per vedere scadenze e avvisi nuovi.</span></div>" : "") +
+      S.ponte.notes.map(function (t) { return '<div class="cell notice">' + ic("warn") + "<span>" + esc(t) + "</span></div>"; }).join("") +
+      failureCells();
+    return group("Ponte con il portale", rows);
+  }
+  function ponteSection() {
+    var ops = C.pendingOps(readBox());
+    var rows = labeled("Dati del portale", PB.snap ? "letti " + C.relative(PB.snap.at) : "non ancora letti") +
+      labeled("Ponte", "versione " + (PB.snap ? PB.snap.bv : C.PONTE.version) + (isStandalone() ? " · schermata Home" : " · Safari")) +
+      '<button class="cell accent-row" data-a="sync">' + ic("refresh") + '<span class="t">Aggiorna dal portale</span></button>' +
+      ops.map(function (op) {
+        return '<div class="cell"><span class="cell-main"><span class="t">' + esc(opLabel(op)) + '</span><span class="s">Da inviare al portale' +
+          (op.tries >= 3 ? " · non riesco ad applicarla da " + op.tries + " aggiornamenti" : "") + '</span></span><button class="link" data-a="op-cancel" data-k="' + esc(C.opKey(op)) + '">Annulla</button></div>';
+      }).join("") +
+      failureCells() +
+      (isStandalone() ? "" : switchRow("Ritorno automatico in Safari", "autoReturn")) +
+      '<button class="cell accent-row" data-a="ponte-setup">' + ic("link") + '<span class="t">Reinstalla il preferito</span></button>' +
+      extRow("Leggi il codice del ponte", appBase() + C.PONTE.file, "doc");
+    return group("Ponte con il portale", rows,
+      "Il ponte legge corsi, scadenze e avvisi solo quando tocchi il preferito «Statale Open» su una pagina del portale. " +
+      "Il preferito esegue solo il file con impronta " + esc(C.PONTE.sri.slice(0, 19)) + "…: se il file cambiasse, il browser lo rifiuterebbe." +
+      (isStandalone() ? "" : " Con il ritorno automatico i dati tornano all'app nell'indirizzo della scheda (Safari può tenerli nella cronologia); spento, passano dagli appunti."));
+  }
+
+  // Schermata di installazione del preferito.
+  function ponteHtml() {
+    var code = C.bookmarklet(appBase()), standalone = isStandalone();
+    var touch = /iPhone|iPad|iPod|Android/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+    function steps(list) { return '<div class="cell"><ol class="steps">' + list.map(function (t) { return "<li>" + t + "</li>"; }).join("") + "</ol></div>"; }
+    var body = group("", '<div class="cell"><span class="s">' + esc(MSG.ponteIntro) + "</span></div>") +
+      group("1 · Copia il codice del preferito",
+        '<button class="cell accent-row" data-a="ponte-copy-code">' + ic("copy") + '<span class="t">' + (S.ponte.copied ? "Codice copiato ✓" : "Copia il codice") + "</span></button>" +
+        '<div class="cell"><textarea class="code-box" id="ponte-code" readonly aria-label="Codice del preferito">' + esc(code) + "</textarea></div>" +
+        (touch ? "" : '<div class="cell"><a class="bm-link" href="' + esc(code) + '" data-a="bm-drag" draggable="true">★ Statale Open</a><span class="s">Sul computer basta trascinare questo pulsante nella barra dei preferiti, poi passare al punto 4.</span></div>'),
+        "Se la copia non parte, tieni premuto nel riquadro e scegli «Seleziona tutto» e «Copia».") +
+      group("2 · Crea il preferito in Safari", steps([
+        "Apri <b>Safari</b> (anche su questa pagina va bene).",
+        "Tocca <b>Condividi</b> (il quadrato con la freccia) → <b>Aggiungi ai Preferiti</b>.",
+        "Cambia il nome in <b>Statale Open</b> e tocca <b>Salva</b>."
+      ])) +
+      group("3 · Metti il codice nel preferito", steps([
+        "Tocca l'icona dei <b>Segnalibri</b> (il libro) → <b>Preferiti</b> → <b>Modifica</b>.",
+        "Tocca <b>Statale Open</b>, cancella l'indirizzo con ⓧ, tieni premuto nel campo → <b>Incolla</b>.",
+        "Tocca <b>Fine</b> due volte."
+      ])) +
+      group("4 · Primo aggiornamento", standalone
+        ? '<div class="cell"><span class="s">Tocca «Aggiorna dal portale» e segui i passaggi: dalla schermata Home i dati passano dagli appunti.</span></div>'
+        : '<div class="cell"><span class="s">Si apre La Statale Open in questa scheda. Se serve accedi, poi tocca la barra degli indirizzi e il preferito <b>Statale Open</b>: l\'app si riapre da sola con i tuoi dati.</span></div>',
+        standalone ? "Dalla schermata Home servono circa 10 tocchi per aggiornare; in una scheda di Safari ne bastano 3, ma Safari cancella i dati delle app web non aperte da 7 giorni (dalla schermata Home non succede)."
+          : "In Safari i dati restano finché apri l'app almeno una volta ogni 7 giorni; aggiunta alla schermata Home non scadono, ma per aggiornare servono più tocchi (i dati passano dagli appunti).") +
+      '<div class="group"><button class="btn-primary" data-a="' + (standalone ? "sync" : "sync-start") + '">' + ic(standalone ? "refresh" : "globe") + (standalone ? "Aggiorna dal portale" : "Apri il portale e aggiorna") + "</button></div>" +
+      '<div class="group"><button class="btn-secondary" data-a="sync">' + ic("copy") + "Ho già i dati del ponte: incollali</button></div>";
+    var back = '<button class="link back" data-a="ponte-back">' + ic("chevL") + (S.ponte.from === "app" ? "Altro" : "Accesso") + "</button>";
+    return '<div class="screen"><header class="nav inline"><div class="nav-row"><div class="side">' + back + '</div><div class="center">Ponte con il portale</div><div class="side end"></div></div></header>' +
+      '<main class="content" id="content">' + body + "</main></div>";
+  }
+
+  // Foglio «Aggiorna dal portale»: in Safari si va al portale nella stessa scheda; dalla schermata Home si passa dagli appunti.
+  function syncSheetHtml() {
+    var y = S.sync;
+    if (!y) return "";
+    var standalone = isStandalone(), box = readBox(), n = C.pendingOps(box).length;
+    var enter = y.shown ? "" : " enter-up";
+    y.shown = true;
+    var pending = n ? group("", '<div class="cell"><span class="s">Con l\'aggiornamento partono ' + n + (n === 1 ? " modifica" : " modifiche") + " (" + esc(C.opsSummary(box)) +
+      "): sul portale il ponte chiede conferma prima di applicarle.</span></div>") : "";
+    var body;
+    if (standalone) {
+      body = group("Dalla schermata Home", '<div class="cell"><ol class="steps">' +
+        "<li>Tocca <b>Copia l'indirizzo del portale</b>.</li>" +
+        "<li>Apri <b>Safari</b>, tieni premuta la barra degli indirizzi e scegli <b>Incolla e vai</b>. Se serve accedi.</li>" +
+        "<li>Tocca la barra degli indirizzi e il preferito <b>Statale Open</b>, poi <b>Copia per l'app</b>.</li>" +
+        "<li>Torna qui e tocca <b>Incolla i dati</b>.</li></ol></div>") + pending +
+        '<div class="group"><button class="btn-primary" data-a="sync-start">' + ic("copy") + (y.copied ? "Indirizzo copiato ✓" : "Copia l'indirizzo del portale") + "</button></div>" +
+        (y.url ? group("Copia a mano", '<div class="cell"><textarea class="code-box" readonly aria-label="Indirizzo del portale">' + esc(y.url) + "</textarea></div>") : "");
+    } else {
+      body = group("", '<div class="cell"><span class="s">Si apre La Statale Open in questa scheda. Se serve accedi, poi tocca la barra degli indirizzi e il preferito <b>Statale Open</b>: ' +
+        (S.autoReturn ? "l'app si riapre da sola con i dati aggiornati." : "nel pannello del ponte tocca «Copia per l'app», torna qui e tocca «Incolla i dati».") + "</span></div>") + pending +
+        '<div class="group"><button class="btn-primary" data-a="sync-start">' + ic("globe") + "Apri il portale</button></div>";
+    }
+    body += '<div class="group"><button class="btn-secondary" data-a="sync-paste">' + ic("copy") + "Incolla i dati</button></div>" +
+      (y.note ? noticeGroup(y.note) : "") +
+      (y.manual
+        ? group("Incolla a mano", '<div class="cell"><textarea class="paste-area" id="paste-box" data-paste="1" placeholder="Tieni premuto qui e scegli «Incolla»"></textarea></div>' +
+            '<button class="cell accent-row" data-a="sync-import"><span class="t">Importa</span></button>')
+        : group("", '<button class="cell accent-row" data-a="sync-manual"><span class="t">Incolla a mano</span></button>' +
+            '<label class="cell accent-row"><span class="t">Scegli un file</span><input class="file-input" type="file" id="ponte-file" accept=".txt,text/plain"></label>',
+            "Il file è quello di «Scarica i dati in un file» nel pannello del ponte (di solito in File → Download)."));
+    return '<div class="sheet' + enter + '" role="dialog" aria-label="Aggiorna dal portale"><div class="browser">' +
+      '<header class="nav inline"><div class="nav-row"><div class="side"><button class="link" data-a="sync-close">Chiudi</button></div><div class="center">Aggiorna dal portale</div><div class="side end"></div></div></header>' +
+      '<main class="content">' + body + "</main></div></div>";
+  }
 
   function credentialsSection() {
     return group("Credenziali",
@@ -1047,16 +1428,25 @@
             '<div class="cell"><input class="field code" id="login-key" data-login="key" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="32 caratteri" value="' + esc(L.key) + '"></div>' +
             extRow("Apri le chiavi di sicurezza nel portale", BASE + "user/managetoken.php", "key"),
             "Se il portale non accetta la password dalle app (accesso solo con il login di Ateneo): entra nel portale, apri Preferenze → Chiavi di sicurezza e copia la chiave del servizio \"Moodle mobile web service\". Se non c'è, usa la modalità web.");
-      // Portale senza servizi per app: le schede native ci sono solo nell'app iPhone (sessione del sito).
+      // Portale senza servizi per app: le schede native arrivano dal ponte (o dall'app iPhone, con la sessione del sito).
       var appOnly = L.error === MSG.disabled || (L.diag && L.diag.text === MSG.disabled);
-      body = brand + noticeGroup(S.notice) + seg + form +
-        (L.error ? noticeGroup(L.error) : "") +
-        (appOnly ? group("", extRow("Scarica l'app iPhone", REPO_URL + "#scarica-lapp-iphone", "down")) : "") +
-        '<div class="group"><button class="btn-primary" data-a="login"' + (L.busy ? " disabled" : "") + ">" + (L.busy ? spinner() + "Accesso in corso…" : ic("personKey") + "Accedi") + "</button></div>" +
-        group("", '<button class="cell accent-row" data-a="site-check"' + (L.checking ? " disabled" : "") + '>' + ic("pulse") + '<span class="t">Verifica il collegamento al portale</span><span class="cell-main"></span>' + (L.checking ? spinner() : "") + "</button>" +
-          '<button class="cell accent-row" data-a="web-mode">' + ic("globe") + '<span class="t">Usa la modalità web</span></button>',
-          L.diag ? '<span class="diag ' + (L.diag.ok ? "ok" : "bad") + '">' + esc(L.diag.text) + "</span>" : "La modalità web apre direttamente le pagine del portale, senza schede native.") +
-        demoButton;
+      var more = L.more || L.busy || !!L.error;
+      body = brand + noticeGroup(S.notice) +
+        group("Collega l'app al portale", '<div class="cell"><span class="s">' + esc(MSG.ponteIntro) + "</span></div>") +
+        '<div class="group"><button class="btn-primary" data-a="ponte-setup">' + ic("link") + "Collega con il ponte</button></div>" +
+        group("", '<button class="cell accent-row" data-a="web-mode">' + ic("globe") + '<span class="t">Usa la modalità web</span></button>',
+          "La modalità web apre direttamente le pagine del portale, senza schede native.") +
+        demoButton +
+        group("", '<button class="cell accent-row" data-a="login-more" aria-expanded="' + more + '">' + ic("key") + '<span class="t">Altri modi di accesso</span><span class="cell-main"></span>' +
+          ic("chevR", ' class="chev" style="transform:rotate(' + (more ? "-90" : "90") + 'deg)"') + "</button>",
+          "Email e password o chiave dell'app: funzionano solo se il portale riattiva i servizi per app.") +
+        (more ? seg + form +
+          (L.error ? noticeGroup(L.error) : "") +
+          (appOnly ? group("", '<button class="cell accent-row" data-a="ponte-setup">' + ic("link") + '<span class="t">Collega con il ponte</span></button>' +
+            extRow("Scarica l'app iPhone", REPO_URL + "#scarica-lapp-iphone", "down")) : "") +
+          '<div class="group"><button class="btn-primary" data-a="login"' + (L.busy ? " disabled" : "") + ">" + (L.busy ? spinner() + "Accesso in corso…" : ic("personKey") + "Accedi") + "</button></div>" +
+          group("", '<button class="cell accent-row" data-a="site-check"' + (L.checking ? " disabled" : "") + '>' + ic("pulse") + '<span class="t">Verifica il collegamento al portale</span><span class="cell-main"></span>' + (L.checking ? spinner() : "") + "</button>",
+            L.diag ? '<span class="diag ' + (L.diag.ok ? "ok" : "bad") + '">' + esc(L.diag.text) + "</span>" : "") : "");
     }
     return '<div class="screen"><header class="nav"><div class="nav-row"><span></span></div><h1>Accesso</h1></header><div class="login">' + body + "</div></div>";
   }
@@ -1207,7 +1597,7 @@
     render();
   }
   function overlaysHtml() {
-    var out = "";
+    var out = syncSheetHtml();
     if (S.ql) {
       var qlEnter = S.ql.shown ? "" : " enter-up"; S.ql.shown = true;
       out += '<div class="ql' + qlEnter + '" role="dialog" aria-label="Anteprima"><header class="nav inline"><div class="nav-row"><div class="side"><button class="link" data-a="ql-close">Fine</button></div><div class="center">' + esc(S.ql.name) +
@@ -1276,6 +1666,7 @@
     if (S.phase === "checking") inner = '<div class="checking">' + spinner() + "Connessione al portale…</div>";
     else if (S.phase === "login") { inner = loginHtml(); key = "login"; }
     else if (S.phase === "web") { inner = webHtml(); key = "web:" + S.webTab; }
+    else if (S.phase === "ponte") { inner = ponteHtml(); key = "ponte"; }
     else { var a = appHtml(); inner = a.html; key = a.key; view = a.view; }
 
     device.innerHTML = (S.mode === "demo" && S.phase !== "login" ? '<div class="demo-strip">Dati di esempio · v' + APP.version + "</div>" : "") + inner + overlaysHtml();
@@ -1313,6 +1704,7 @@
   }
   // .refreshable delle viste: ricarica l'elenco della schermata.
   function pullRefresh() {
+    if (S.mode === "bridge") { openSync(); return; }
     var entry = current();
     if (entry.v === "course") { S.contents[entry.id] = Object.assign({}, S.contents[entry.id], { status: "reload" }); render(); return; }
     if (entry.v === "cluster") { delete S.cats[entry.id]; render(); return; }
@@ -1376,6 +1768,25 @@
   function copyText(text, done) {
     try { navigator.clipboard.writeText(text).then(done, function () { done(); toast("Copia non consentita qui"); }); } catch (e) { done(); }
   }
+  // Copia negli appunti dentro il tocco; se il browser la rifiuta prova il vecchio metodo. Risolve con true se è riuscita.
+  function copyTextOk(text) {
+    function legacy() {
+      var area = document.createElement("textarea");
+      area.value = text; area.setAttribute("readonly", "");
+      area.style.position = "fixed"; area.style.top = "0"; area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.focus(); area.select();
+      try { area.setSelectionRange(0, text.length); } catch (e) { /* selezione non disponibile */ }
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      area.remove();
+      return ok;
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).then(function () { return true; }, legacy);
+    } catch (e) { /* appunti non disponibili */ }
+    return Promise.resolve(legacy());
+  }
 
   // ---------- Tocchi ----------
   device.addEventListener("click", function (ev) {
@@ -1394,6 +1805,26 @@
         break;
       case "web-mode": useWebMode(); break;
       case "start-demo": startDemo(); break;
+      case "login-more": S.login.more = !(S.login.more || S.login.busy || !!S.login.error); if (!S.login.more) S.login.error = null; render(); break;
+      // Ponte con il portale
+      case "ponte-setup": startPonteSetup(S.phase === "app" ? "app" : "login"); break;
+      case "ponte-back": leavePonteSetup(); break;
+      case "ponte-copy-code":
+        copyTextOk(C.bookmarklet(appBase())).then(function (ok) {
+          S.ponte.copied = ok; render();
+          toast(ok ? "Codice copiato: ora crea il preferito in Safari" : "Copia non riuscita: tieni premuto nel riquadro e scegli «Copia»");
+        });
+        break;
+      case "bm-drag": ev.preventDefault(); toast("Trascina il pulsante nella barra dei preferiti: funziona sulle pagine del portale"); break;
+      case "sync": openSync(); break;
+      case "sync-start": if (!S.sync) S.sync = {}; startSync(); break;
+      case "sync-close": S.sync = null; render(); break;
+      case "sync-paste": pasteData(); break;
+      case "sync-manual": S.sync = Object.assign(S.sync || {}, { manual: true, note: null }); render(); setTimeout(function () { var p = document.getElementById("paste-box"); if (p) p.focus(); }, 50); break;
+      case "sync-import": var box = document.getElementById("paste-box"); importText(box ? box.value : "", "paste"); break;
+      case "op-cancel": writeBox(C.cancelOp(readBox(), el.dataset.k)); applyBridge(); render(); toast("Modifica annullata"); break;
+      case "fail-dismiss":
+        var fl = failures(); fl.splice(Number(el.dataset.i), 1); writeJSON(KEYS.ponteFail, fl); render(); break;
       // Navigazione
       case "tab":
         if (S.tab === el.dataset.tab) S.stacks[S.tab] = st.slice(0, 1);
@@ -1402,7 +1833,7 @@
       case "back": if (st.length > 1) st.pop(); render(); break;
       case "scope": S.scope = el.dataset.scope; render(); break;
       case "filter": current().filter = el.dataset.k; render(); break;
-      case "refresh": refreshAll(); break;
+      case "refresh": if (S.mode === "bridge") openSync(); else refreshAll(); break;
       // Contenuti
       case "open": openURL(el.dataset.url, el.dataset.title); break;
       case "event":
@@ -1515,12 +1946,19 @@
     if ((ev.key === "Enter" || ev.key === " ") && el.getAttribute && el.getAttribute("role") === "button" && el.tagName !== "BUTTON") { ev.preventDefault(); el.click(); }
     if (ev.key === "Enter" && el.dataset && el.dataset.login) { ev.preventDefault(); if (S.login.method === "key") loginWithKey(); else loginWithPassword(); }
     if (ev.key === "Escape") {
-      if (S.ctx) S.ctx = null; else if (S.ql) S.ql = null; else if (S.sheet) S.sheet = null; else return;
+      if (S.ctx) S.ctx = null; else if (S.ql) S.ql = null; else if (S.sheet) S.sheet = null; else if (S.sync) S.sync = null; else return;
       render();
     }
   });
+  device.addEventListener("paste", function (ev) {
+    var el = ev.target;
+    if (!el.dataset || !el.dataset.paste) return;
+    var text = ev.clipboardData && ev.clipboardData.getData("text");
+    if (text && C.findEnvelope(text).kind === "payload") { ev.preventDefault(); importText(text, "paste"); }
+  });
   device.addEventListener("input", function (ev) {
     var el = ev.target;
+    if (el.dataset.paste) { if (C.findEnvelope(el.value).kind === "payload") importText(el.value, "paste"); return; }
     if (el.dataset.login) { S.login[el.dataset.login] = el.value; return; }
     if (el.dataset.field === "email") {
       S.email = el.value;
@@ -1537,20 +1975,32 @@
   device.addEventListener("change", function (ev) {
     var el = ev.target;
     if (el.id === "assign-file" && el.files && el.files.length) { pendingFile = el.files[0].name; return; }
+    if (el.id === "ponte-file" && el.files && el.files.length) { readFile(el.files[0]); return; }
     if (el.dataset.demoSelect) { S.demo[el.dataset.demoSelect] = el.value; saveToggles(); render(); }
   });
 
   // Ritorno in primo piano: aggiorna se i dati hanno più di 5 minuti (MainTabView) e ricontrolla gli aggiornamenti.
   document.addEventListener("visibilitychange", function () {
     if (document.visibilityState !== "visible") return;
-    if (S.phase === "app" && (!S.data.lastUpdated || Date.now() - S.data.lastUpdated > 5 * 60e3)) refreshAll();
+    // Con il ponte niente rete: si ridisegna (per l'invito a incollare i dati copiati dal portale).
+    if (S.mode === "bridge") { if (S.phase === "app" && !S.alert && !S.ctx) render(); }
+    else if (S.phase === "app" && (!S.data.lastUpdated || Date.now() - S.data.lastUpdated > 5 * 60e3)) refreshAll();
     checkUpdateIfNeeded();
+  });
+  window.addEventListener("hashchange", function () {
+    var incoming = EMBEDDED ? null : takeIncoming();
+    if (incoming) importText(incoming, "frag");
+  });
+  // Un'altra scheda dell'app ha importato dati o cambiato le modifiche in attesa.
+  window.addEventListener("storage", function (ev) {
+    if (!ev.key || ev.key.indexOf("so.ponte.") !== 0 || S.mode !== "bridge" || S.phase !== "app") return;
+    if (loadSnap()) { applyBridge(); render(); }
   });
   // Tempi relativi aggiornati ogni minuto, senza disturbare chi scrive o guarda una pagina.
   setInterval(function () {
     var active = document.activeElement;
     var typing = active && (active.tagName === "INPUT" || active.tagName === "SELECT" || active.tagName === "TEXTAREA");
-    if (!typing && !S.alert && !S.sheet && !S.ql && !S.ctx) render();
+    if (!typing && !S.alert && !S.sheet && !S.ql && !S.ctx && !S.sync) render();
   }, 60e3);
 
   // ---------- Avvio ----------

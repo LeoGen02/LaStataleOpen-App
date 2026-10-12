@@ -23,6 +23,19 @@ la chiave dell'app, l'email se la salvi, le impostazioni e la copia di corsi, sc
 La pagina è un sito statico su GitHub Pages: non ha un server proprio e non riceve i tuoi dati,
 che viaggiano direttamente tra il browser e il portale dell'Ateneo.
 
+### Ponte con il portale (app web)
+
+- Il ponte gira sulla pagina del portale solo quando tocchi il preferito «Statale Open». Legge i tuoi corsi (nome, avanzamento),
+  sezioni e attività (nome, tipo, completamento), scadenze, avvisi (oggetto e corso, non il testo del messaggio) e l'elenco dei percorsi.
+  **Non legge** password, cookie, email, voti, testi dei messaggi né dati di altri studenti; la chiave di sessione del portale (sesskey)
+  resta in memoria durante la lettura e non viene consegnata all'app.
+- I dati vanno **solo all'app**, sul tuo dispositivo, in uno di questi modi che scegli tu: nell'indirizzo della scheda (`#ponte=…`, compressi;
+  l'app lo toglie subito, ma Safari può tenerlo nella cronologia — disattivabile con *Altro → Ritorno automatico in Safari*),
+  negli appunti (*Copia per l'app*; con gli Appunti universali possono arrivare agli altri tuoi dispositivi Apple) o in un file.
+- L'app li salva nell'archivio del browser, insieme alle modifiche non ancora inviate. *Esci* cancella tutto; il preferito resta in Safari
+  finché non lo elimini.
+- GitHub vede solo lo scaricamento anonimo del file del ponte (senza indirizzo di provenienza).
+
 ## Con chi parla l'app
 
 - `lastataleopen.myariel.unimi.it` ed `elearning.unimi.it` — il portale e il login dell'Ateneo, come il sito nel browser.

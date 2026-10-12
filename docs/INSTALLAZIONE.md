@@ -1,5 +1,53 @@
 # Installare Statale Open
 
+Due strade: l'**app web** (nessuna installazione, dal browser del telefono, collegata al portale con il *ponte*)
+oppure l'**app iPhone** (file `.ipa`, si collega da sola con la sessione del sito). Inizia dall'app web: bastano Safari e cinque minuti.
+
+## App web con il ponte (consigliata per iniziare)
+
+Apri **[leogen02.github.io/LaStataleOpen-App](https://leogen02.github.io/LaStataleOpen-App/)** in **Safari** sull'iPhone.
+Il portale non lascia leggere i tuoi dati alle app web, quindi l'app li riceve dal **ponte**: un preferito di Safari
+che tocchi su una pagina di La Statale Open in cui sei già entrato. Il ponte legge corsi, scadenze e avvisi e torna all'app.
+
+### Una volta sola: crea il preferito «Statale Open»
+
+1. Nell'app tocca **Collega con il ponte** → **Copia il codice**.
+2. In Safari tocca **Condividi** (il quadrato con la freccia) → **Aggiungi ai Preferiti**, chiamalo **Statale Open** e tocca **Salva**.
+3. Tocca l'icona dei **Segnalibri** (il libro) → **Preferiti** → **Modifica** → **Statale Open**.
+   Cancella l'indirizzo con ⓧ, tieni premuto nel campo → **Incolla**, poi **Fine** due volte.
+4. Torna all'app e tocca **Apri il portale e aggiorna**: si apre La Statale Open nella stessa scheda.
+   Se serve accedi con il login di Ateneo, poi tocca la **barra degli indirizzi** e il preferito **Statale Open**.
+   Compare un pannello in basso (*Statale Open · ponte*), legge i dati in pochi secondi e riapre l'app con corsi, scadenze e avvisi.
+
+Sul computer basta trascinare il pulsante **★ Statale Open** della schermata di installazione nella barra dei preferiti.
+
+### Ogni giorno
+
+- **In una scheda di Safari** (3 tocchi): *Home → Aggiorna dal portale → Apri il portale*, poi barra degli indirizzi → **Statale Open**.
+  L'app si riapre da sola con i dati nuovi.
+- **Dalla schermata Home** (*Condividi → Aggiungi alla schermata Home*): l'app ha un archivio separato da Safari, quindi i dati passano
+  dagli appunti. *Aggiorna dal portale → Copia l'indirizzo del portale*; in Safari tieni premuta la barra degli indirizzi →
+  **Incolla e vai** → preferito **Statale Open** → **Copia per l'app**; torna all'app e tocca **Incolla i dati**.
+- Se il login di Ateneo ti chiede di accedere, dopo l'accesso tocca di nuovo il preferito: i dati arrivano lo stesso.
+  Se avevi modifiche in attesa, l'app lo dice e le rimanda al prossimo aggiornamento.
+- **Avvisi letti** e **attività segnate come completate** nell'app restano *da inviare* e arrivano al portale al prossimo aggiornamento,
+  dopo una conferma nel pannello del ponte (*Applica e aggiorna*).
+
+### Se qualcosa non va
+
+| Messaggio | Cosa fare |
+|---|---|
+| *tocca il preferito mentre sei su una pagina di La Statale Open* | il preferito è stato toccato su un altro sito: apri il portale e riprova |
+| *il ponte non si è caricato* | controlla la connessione; se continua, reinstalla il preferito (*Altro → Ponte con il portale → Reinstalla il preferito*) |
+| *Non hai ancora effettuato l'accesso al portale* | tocca **Accedi** nel pannello, entra con il login di Ateneo e tocca di nuovo il preferito |
+| *La sessione del portale è scaduta* | ricarica la pagina, accedi e tocca di nuovo il preferito |
+| *Questa pagina non è adatta al ponte* | apri la Dashboard del portale (pannello → **Apri la Dashboard**) e riprova |
+| *Negli appunti non ci sono dati del ponte* | nel pannello sul portale tocca **Copia per l'app**, poi **Incolla i dati**; in alternativa **Scarica i dati in un file** e nell'app **Scegli un file** |
+
+In Safari i dati dell'app restano finché la apri almeno una volta ogni 7 giorni; dalla schermata Home non scadono.
+
+## App iPhone
+
 Statale Open non è sull'App Store: si installa da un file `.ipa` firmato con il tuo Apple ID ("sideloading").
 È gratuito e non serve un account sviluppatore a pagamento.
 

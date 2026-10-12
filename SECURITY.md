@@ -18,3 +18,20 @@ la correzione verrà pubblicata in una nuova versione e indicata nel [CHANGELOG]
 - Nell'app web la chiave dell'app sta nell'archivio del browser e la password non viene mai salvata; il sito non ha un server
   proprio e non usa librerie esterne.
 - Le build di GitHub Actions non usano segreti: chiunque può verificare che l'ipa nasce da questo codice confrontando l'SHA-256 indicato in ogni release.
+
+## Ponte con il portale (app web)
+
+Il ponte (`docs/ponte/ponte-1.js`) gira sulla pagina del portale con la tua sessione, quindi è progettato per fare il minimo:
+
+- **Solo il codice che hai installato.** Il preferito carica il file con `integrity="sha384-…"` e `crossorigin`: se il file pubblicato cambia
+  anche di un byte, il browser non lo esegue. I file `ponte-N.js` pubblicati non si modificano mai (la CI lo verifica e controlla anche
+  la copia su GitHub Pages); una correzione è un file nuovo con un nuovo preferito. L'impronta è in *Altro → Ponte con il portale*.
+- **Un solo punto di uscita** verso il portale, con un elenco chiuso di sette funzioni Moodle (cinque letture, due scritture) e le sole pagine
+  `course/index.php` dei percorsi. Nessun `eval`, `innerHTML`, `document.cookie`, `localStorage`, `postMessage` o richiesta ad altri siti:
+  un test lo controlla a ogni push.
+- **Dati solo all'app** da cui è stato caricato il ponte, e solo con un tuo gesto o una richiesta dell'app; la richiesta non può scegliere
+  la destinazione. Le scritture (avvisi letti, attività completate) partono solo dopo la conferma nel pannello.
+- **Nell'app** i dati ricevuti vengono ricontrollati: solo testo, numeri validi, lunghezze limitate e indirizzi del solo portale;
+  la pagina ha una Content-Security-Policy che vieta script esterni. Un link `#ponte=…` non richiesto dall'app chiede conferma prima di essere importato.
+
+Per verificare a mano: `openssl dgst -sha384 -binary docs/ponte/ponte-1.js | base64` deve dare l'impronta del preferito.

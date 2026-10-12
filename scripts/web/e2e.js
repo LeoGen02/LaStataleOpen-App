@@ -110,7 +110,7 @@ function serve() {
     return route.fulfill({ status: 200, contentType: "text/html", body: "<p>pagina del portale</p>" });
   });
   await context.route("https://api.github.com/**", (route) => route.fulfill({ status: 200, headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
-    body: JSON.stringify({ tag_name: "v1.3.0", html_url: "https://github.com/LeoGen02/LaStataleOpen-App/releases/tag/v1.3.0" }) }));
+    body: JSON.stringify({ tag_name: "v1.4.0", html_url: "https://github.com/LeoGen02/LaStataleOpen-App/releases/tag/v1.4.0" }) }));
 
   const page = await context.newPage();
   // Pagine aperte in una nuova scheda (window.open): se ne registra l'indirizzo.
@@ -135,6 +135,7 @@ function serve() {
   await page.goto(base);
 
   await check("verifica del collegamento", async () => {
+    await page.click('[data-a="login-more"]');
     await page.click('[data-a="site-check"]');
     await expectText("ha i servizi per app attivi");
   });
@@ -162,7 +163,7 @@ function serve() {
     const t = await text();
     if (!t.includes("E-tivity 1 è in scadenza")) throw new Error("scadenza mancante");
     if (t.indexOf("Fondamenti di cybersecurity") > t.indexOf("Crittografia applicata", t.indexOf("RIPRESA"))) throw new Error("corsi non ordinati per ultimo accesso");
-    await expectText("È disponibile la versione 1.3.0");
+    await expectText("È disponibile la versione 1.4.0");
   });
   await check("password non salvata, chiave salvata", async () => {
     const stored = await page.evaluate(() => JSON.stringify(localStorage));
@@ -244,7 +245,7 @@ function serve() {
     await page.click('[data-a="back"]');
     await expectText("Altro percorso");
     await page.click('[data-a="check-update"]');
-    await expectText("È disponibile la versione 1.3.0.");
+    await expectText("È disponibile la versione 1.4.0.");
     await shot("4-altro");
   });
   await check("calendario .ics generato", async () => {
