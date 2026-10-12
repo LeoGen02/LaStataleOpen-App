@@ -8,7 +8,7 @@ Non ha server propri, non contiene pubblicità né strumenti di analisi e non ra
 | Dato | Dove | Perché |
 |---|---|---|
 | Email e password di Ateneo | Portachiavi di iOS, solo su questo dispositivo | compilare il login dell'Ateneo quando la sessione scade |
-| Token del portale (Moodle) | Portachiavi di iOS, solo su questo dispositivo | leggere corsi, scadenze e avvisi |
+| Token del portale (Moodle) oppure sessione del sito (cookie del portale e sesskey) | Portachiavi di iOS, solo su questo dispositivo | leggere corsi, scadenze e avvisi |
 | Corsi, scadenze, avvisi | cartella cache dell'app | mostrarli anche senza rete |
 | Impostazioni (percorso, promemoria, accesso automatico) | impostazioni dell'app | ricordare le tue scelte |
 | Cookie del portale | archivio del browser interno | restare collegato nelle pagine del sito |
@@ -37,7 +37,7 @@ che viaggiano direttamente tra il browser e il portale dell'Ateneo.
 
 ## Come cancellare tutto
 
-*Altro → Esci* cancella token, cookie e dati salvati del portale; *Altro → Rimuovi credenziali* cancella email e password.
+*Altro → Esci* cancella token, sessione, cookie e dati salvati del portale; *Altro → Rimuovi credenziali* cancella email e password.
 Eliminando l'app iOS rimuove anche il resto. Nell'app web *Esci* cancella chiave e dati salvati; cancellando i dati del sito
 nelle impostazioni del browser sparisce tutto.
 

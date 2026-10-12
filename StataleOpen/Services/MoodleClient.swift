@@ -74,7 +74,7 @@ final class MoodleClient {
         try await call("core_course_get_contents", ["courseid": String(courseID)])
     }
 
-    func upcomingEvents(from start: Date = Date().addingTimeInterval(-14 * 86_400), limit: Int = 50) async throws -> [CalendarEvent] {
+    func upcomingEvents(from start: Date, limit: Int) async throws -> [CalendarEvent] {
         let response: EventsResponse = try await call("core_calendar_get_action_events_by_timesort", [
             "timesortfrom": String(Int(start.timeIntervalSince1970)),
             "limitnum": String(limit),

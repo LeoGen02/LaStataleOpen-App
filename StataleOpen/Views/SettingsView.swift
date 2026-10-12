@@ -11,10 +11,17 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 if let info = session.siteInfo {
-                    Section("Account") {
-                        LabeledContent("Studente", value: info.fullname)
+                    Section {
+                        if !info.fullname.isEmpty { LabeledContent("Studente", value: info.fullname) }
                         if let username = info.username { LabeledContent("Utente", value: username) }
                         LabeledContent("Portale", value: info.sitename?.htmlStripped ?? SiteConfig.moodleHost)
+                        LabeledContent("Collegamento", value: session.access == .siteSession ? "Sessione del sito" : "Servizi per app")
+                    } header: {
+                        Text("Account")
+                    } footer: {
+                        if session.access == .siteSession {
+                            Text("Il portale ha i servizi per app disattivati: l'app legge corsi, scadenze e avvisi con la sessione del sito, come le sue pagine. Quando scade, l'app rifà il login di Ateneo da sola con le credenziali salvate.")
+                        }
                     }
                 }
                 Section {

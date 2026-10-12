@@ -21,16 +21,21 @@ enum CredentialAutofill {
 
     /// Esegue lo script; `completion` riceve true se il modulo è stato inviato.
     static func run(in webView: WKWebView, submit: Bool, completion: @escaping (Bool) -> Void) {
+        fill(in: webView, submit: submit) { completion($0 == "submitted") }
+    }
+
+    /// Come `run`, ma riporta l'esito dello script: "submitted", "filled", "nopw" (nessun campo password) o "nocreds".
+    static func fill(in webView: WKWebView, submit: Bool, completion: @escaping (String) -> Void) {
         guard let username = KeychainStore.get(.username), let password = KeychainStore.get(.password),
               !username.isEmpty, !password.isEmpty,
               let data = try? JSONSerialization.data(withJSONObject: [username, password]),
               let json = String(data: data, encoding: .utf8) else {
-            completion(false)
+            completion("nocreds")
             return
         }
         let script = source + "(\(json), \(submit ? "true" : "false"));"
         webView.evaluateJavaScript(script) { result, _ in
-            completion((result as? String) == "submitted")
+            completion(result as? String ?? "")
         }
     }
 

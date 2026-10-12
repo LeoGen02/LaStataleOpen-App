@@ -22,7 +22,7 @@
     network: "Il portale non ha risposto. Se sei connesso, il portale potrebbe non accettare richieste da un'app web: prova con la chiave dell'app o usa la modalità web.",
     expired: "La sessione è scaduta: accedi di nuovo.",
     unreachable: "Portale non raggiungibile: dati non aggiornati.",
-    disabled: "I servizi per le app sono disattivati sul portale: corsi, scadenze e avvisi non si possono leggere da un'app. Usa la modalità web, che apre le pagine del portale."
+    disabled: "I servizi per le app sono disattivati sul portale e il browser non lascia a un altro sito leggere le sue pagine: da qui puoi usare la modalità web. L'app iPhone invece funziona lo stesso: entra con il login di Ateneo e legge corsi, scadenze e avvisi con la sessione del sito."
   };
 
   // ---------- Icone (tratto, 24×24) ----------
@@ -1047,8 +1047,11 @@
             '<div class="cell"><input class="field code" id="login-key" data-login="key" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="32 caratteri" value="' + esc(L.key) + '"></div>' +
             extRow("Apri le chiavi di sicurezza nel portale", BASE + "user/managetoken.php", "key"),
             "Se il portale non accetta la password dalle app (accesso solo con il login di Ateneo): entra nel portale, apri Preferenze → Chiavi di sicurezza e copia la chiave del servizio \"Moodle mobile web service\". Se non c'è, usa la modalità web.");
+      // Portale senza servizi per app: le schede native ci sono solo nell'app iPhone (sessione del sito).
+      var appOnly = L.error === MSG.disabled || (L.diag && L.diag.text === MSG.disabled);
       body = brand + noticeGroup(S.notice) + seg + form +
         (L.error ? noticeGroup(L.error) : "") +
+        (appOnly ? group("", extRow("Scarica l'app iPhone", REPO_URL + "#scarica-lapp-iphone", "down")) : "") +
         '<div class="group"><button class="btn-primary" data-a="login"' + (L.busy ? " disabled" : "") + ">" + (L.busy ? spinner() + "Accesso in corso…" : ic("personKey") + "Accedi") + "</button></div>" +
         group("", '<button class="cell accent-row" data-a="site-check"' + (L.checking ? " disabled" : "") + '>' + ic("pulse") + '<span class="t">Verifica il collegamento al portale</span><span class="cell-main"></span>' + (L.checking ? spinner() : "") + "</button>" +
           '<button class="cell accent-row" data-a="web-mode">' + ic("globe") + '<span class="t">Usa la modalità web</span></button>',

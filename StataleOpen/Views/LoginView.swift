@@ -71,7 +71,8 @@ struct LoginView: View {
     }
 }
 
-/// Mostra la pagina di login reale dell'Ateneo, poi ottiene il token dei web service Moodle.
+/// Mostra la pagina di login reale dell'Ateneo, poi collega l'app: con il token dei web service Moodle
+/// se il portale li abilita, altrimenti con la sessione del sito appena aperta.
 struct LoginFlowView: View {
     @EnvironmentObject private var session: SessionStore
     @Environment(\.dismiss) private var dismiss
@@ -91,6 +92,11 @@ struct LoginFlowView: View {
                     } catch {
                         errorText = error.localizedDescription
                     }
+                }
+            }, onSiteSession: { state in
+                Task { @MainActor in
+                    status = "Accesso riuscito, carico i tuoi dati…"
+                    await session.completeSiteLogin(state)
                 }
             }, onLaunchUnavailable: {
                 Task { @MainActor in showWebOnlyPrompt = true }
@@ -124,12 +130,12 @@ struct LoginFlowView: View {
             } message: {
                 Text(errorText ?? "")
             }
-            .alert("App mobile non abilitata", isPresented: $showWebOnlyPrompt) {
+            .alert("Collegamento non riuscito", isPresented: $showWebOnlyPrompt) {
                 Button("Usa la modalità web") { session.useWebOnlyMode() }
                 Button("Riprova") { reloadID = UUID() }
                 Button("Annulla", role: .cancel) {}
             } message: {
-                Text("Sei entrato nel portale, ma non è stato possibile collegare l'app ai servizi Moodle. Puoi comunque usare l'app in modalità web, con le pagine del portale ottimizzate per iPhone.")
+                Text("Sei entrato nel portale, ma l'app non è riuscita a leggere la sessione. Riprova, oppure usa l'app in modalità web, con le pagine del portale ottimizzate per iPhone.")
             }
         }
     }
@@ -139,6 +145,8 @@ struct LoginWebView: UIViewRepresentable {
     @Binding var isLoading: Bool
     @Binding var status: String
     var onToken: (String, String?) -> Void
+    /// Servizi per app disattivati sul portale: l'app userà la sessione del sito appena aperta.
+    var onSiteSession: (SiteSessionState) -> Void
     var onLaunchUnavailable: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -162,6 +170,9 @@ struct LoginWebView: UIViewRepresentable {
         private var launchAttempts = 0
         private var autoSubmitted = false
         private var finished = false
+        private var readingSession = false
+        /// Sessione del sito letta all'ingresso in Moodle: è la strada di riserva se il token non arriva.
+        private var siteSession: SiteSessionState?
 
         init(parent: LoginWebView) {
             self.parent = parent
@@ -227,13 +238,23 @@ struct LoginWebView: UIViewRepresentable {
                 return
             }
 
-            // Siamo dentro Moodle: chiediamo il token per l'app.
-            if launchAttempts < 2 {
-                launchAttempts += 1
-                parent.status = "Collegamento dell'app al portale…"
-                webView.load(URLRequest(url: launchURL))
-            } else {
-                fail()
+            // Siamo dentro Moodle: leggiamo la sessione del sito, poi chiediamo il token solo se il portale
+            // ha i servizi per app attivi (La Statale Open li ha disattivati: si usa direttamente la sessione).
+            guard !readingSession else { return }
+            readingSession = true
+            parent.status = "Collegamento dell'app al portale…"
+            Task { @MainActor [weak self, weak webView] in
+                guard let self, let webView else { return }
+                if let state = await SiteSessionReader.read(from: webView) { self.siteSession = state }
+                let appServices = self.launchAttempts < 2 ? await SiteSessionClient.appServicesEnabled() : false
+                self.readingSession = false
+                guard !self.finished else { return }
+                if appServices {
+                    self.launchAttempts += 1
+                    webView.load(URLRequest(url: self.launchURL))
+                } else {
+                    self.fail()
+                }
             }
         }
 
@@ -258,9 +279,14 @@ struct LoginWebView: UIViewRepresentable {
             parent.onToken(launch.token, launch.privateToken)
         }
 
+        /// Niente token: si usa la sessione del sito, se è stata letta; altrimenti si propone la modalità web.
         private func fail() {
             guard !finished else { return }
             finished = true
+            if let siteSession {
+                parent.onSiteSession(siteSession)
+                return
+            }
             parent.status = "Collegamento non riuscito"
             parent.onLaunchUnavailable()
         }

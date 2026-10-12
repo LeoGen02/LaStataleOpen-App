@@ -101,13 +101,24 @@ enum BackgroundRefresher {
 
     static func run() async {
         schedule()
-        guard let token = KeychainStore.get(.token) else { return }
-        let client = MoodleClient(token: token, privateToken: nil)
-        guard let info = try? await client.siteInfo() else { return }
+        let client: PortalAPI
+        let userID: Int
+        if let token = KeychainStore.get(.token) {
+            let tokenClient = MoodleClient(token: token, privateToken: nil)
+            guard let info = try? await tokenClient.siteInfo() else { return }
+            client = tokenClient
+            userID = info.userid
+        } else if let state = SessionStore.storedSiteSession() {
+            // In background non si rifà il login: se la sessione del sito è scaduta si aspetta la prossima apertura.
+            client = SiteSessionClient(state: state, renew: nil)
+            userID = state.userID
+        } else {
+            return
+        }
         if let events = try? await client.upcomingEvents() {
             await DeadlineNotifier.schedule(for: events)
         }
-        if let response = try? await client.notifications(userID: info.userid) {
+        if let response = try? await client.notifications(userID: userID) {
             await DeadlineNotifier.notifyNew(response.notifications, post: true)
             await DeadlineNotifier.updateBadge(response.unreadcount ?? response.notifications.filter { !$0.read }.count)
         }

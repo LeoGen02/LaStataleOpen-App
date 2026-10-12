@@ -15,7 +15,8 @@ corsi con lezioni, esercizi ed e-tivity, scadenze con promemoria, avvisi del por
 Si collega al portale con gli stessi servizi Moodle dell'app iPhone; in Safari *Condividi → Aggiungi alla schermata Home* la apre a tutto schermo con la sua icona.
 
 - **Accesso** con email e password di Ateneo (come l'app Moodle ufficiale) oppure con la *chiave dell'app* presa da *Preferenze → Chiavi di sicurezza* del portale.
-  Se il portale non accetta nessuno dei due, la *modalità web* apre direttamente le sue pagine. *Verifica il collegamento* dice subito quale strada funziona.
+  Funziona solo se il portale ha i servizi per app attivi; altrimenti (oggi è così) la *modalità web* apre direttamente le sue pagine
+  e per le schede native serve l'app iPhone, che usa la sessione del sito. *Verifica il collegamento* dice subito quale strada funziona.
 - **Differenze dall'app iPhone**, dovute al browser: le pagine del portale si aprono in una nuova scheda invece che nel browser interno;
   la password non viene salvata (niente Portachiavi); i promemoria si aggiungono al Calendario con un file `.ics` (stessi avvisi 24 h e 2 h prima)
   perché un sito non può notificare ad app chiusa.
@@ -80,8 +81,26 @@ Per problemi di sicurezza segui [SECURITY.md](SECURITY.md).
    (`core_course_get_contents`, `core_calendar_get_action_events_by_timesort`, …).
 4. Le pagine del browser interno usano l'*autologin* di Moodle; se la sessione scade il login viene ricompilato da solo.
 
-**Piano B — modalità web:** se il portale non abilita i servizi per app mobile, l'app offre la modalità web: le schede mostrano
-direttamente le pagine del sito, con login automatico.
+**Sessione del sito — quando i servizi per app sono disattivati** (è il caso di La Statale Open: `enablewebservices = 0`):
+l'app non chiede il token ma usa la sessione aperta dal login di Ateneo, come fanno le pagine del portale.
+
+1. Dopo il login legge dalla pagina la `sesskey` di Moodle (`M.cfg`) e i cookie del portale, e li salva nel Portachiavi.
+2. Chiama `lib/ajax/service.php`, il canale che Moodle tiene sempre attivo per il sito stesso, con le funzioni usate dalle sue pagine:
+   `core_course_get_enrolled_courses_by_timeline_classification` (I miei corsi), `core_courseformat_get_state` (sezioni e attività),
+   `core_calendar_get_action_events_by_timesort` (scadenze), `message_popup_get_popup_notifications` (avvisi),
+   `core_completion_update_activity_completion_status_manually` (segna come completata).
+   L'elenco dei percorsi e dei cluster viene letto dalle pagine `course/index.php`.
+3. Quando il portale chiude la sessione, l'app la rinnova da sola: prima riprende quella del browser interno, poi rifà il login di Ateneo
+   in una pagina invisibile con le credenziali salvate. Se serve l'utente (credenziali cambiate, passaggi in più) torna alla schermata di accesso.
+
+In *Altro → Account* la voce *Collegamento* dice quale strada sta usando l'app. Differenze rispetto ai servizi per app: nel dettaglio del corso
+non ci sono le date di consegna delle singole attività (restano nella scheda Scadenze) e "segna come completata" è proposto per ogni attività
+con completamento: se il completamento è automatico, il portale lo rifiuta e l'app mostra il suo messaggio.
+
+**Modalità web:** resta disponibile come riserva (le schede mostrano direttamente le pagine del sito, con login automatico).
+
+L'app web non può usare la sessione del sito: il browser non lascia a una pagina su `github.io` leggere le pagine di un altro sito
+in cui sei entrato. Con i servizi per app disattivati, dall'app web restano la modalità web e i dati di esempio.
 
 ## Per chi sviluppa
 
@@ -92,10 +111,11 @@ project.yml            spec XcodeGen: target app e test, Info.plist, versione, r
 StataleOpen/
   App/                 entry point, SiteConfig (URL del portale, percorso), AppInfo (versione, link GitHub)
   Models/              modelli JSON dei web service Moodle + classificazione lezioni/esercizi/e-tivity
-  Services/            MoodleClient, SessionStore/PortalData, Keychain, notifiche, aggiornamenti, token di login
+  Services/            PortalAPI con le due strade (MoodleClient: servizi per app; SiteSessionClient: sessione del sito),
+                       SessionStore/PortalData, login invisibile, Keychain, notifiche, aggiornamenti, token di login
   Views/               login, schede, dettaglio corso, scelta del percorso, browser interno
   Resources/           Assets.xcassets (icona, colore), PrivacyInfo.xcprivacy
-StataleOpenTests/      test unitari (classificazione, HTML, link, token, promemoria, versioni)
+StataleOpenTests/      test unitari (classificazione, HTML, link, token, sessione del sito, promemoria, versioni)
 docs/                  app web (index.html, app.js, core.js, app.css, service worker, manifest) e guida all'installazione
 scripts/               selezione del simulatore, note di rilascio, sorgente AltStore, test e build dell'app web
 .github/workflows/     ci.yml (test + build a ogni push/PR), release.yml (pubblicazione), _test.yml, _build.yml
@@ -113,7 +133,8 @@ Dettagli, convenzioni e procedura di rilascio: [CONTRIBUTING.md](CONTRIBUTING.md
 
 Il portale non era raggiungibile dall'ambiente in cui è stata scritta l'app, quindi:
 - se l'invio automatico del login non parte (pulsante non riconosciuto), basta toccare "Accedi" a mano: i campi sono già compilati;
-- se il portale non concede il token, usa la modalità web e apri una issue: si può passare alla lettura delle pagine;
+- con la sessione del sito, se una scheda resta vuota o dà errore apri una issue indicando quale (il portale potrebbe usare un tema
+  che cambia le pagine dei percorsi, lette in `SitePages`, con i test in `StataleOpenTests/SiteSessionTests.swift`);
 - la classificazione Lezioni/Esercizi/E-tivity usa tipo e nome dell'attività (es. "E-tivity 1" → E-tivity, quiz → Esercizi):
   si regola in `ActivityKind.classify`, con i test in `StataleOpenTests/ParsingTests.swift`.
 

@@ -44,7 +44,7 @@ struct HomeView: View {
             List {
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Ciao, \(session.siteInfo?.firstname ?? session.siteInfo?.fullname ?? "studente")")
+                        Text("Ciao, \(session.siteInfo?.greetingName ?? "studente")")
                             .font(.title2.bold())
                         Text("Percorso \(programName) · La Statale Open")
                             .foregroundStyle(.secondary)

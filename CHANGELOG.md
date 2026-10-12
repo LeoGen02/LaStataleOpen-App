@@ -9,10 +9,17 @@ e la descrizione dell'aggiornamento in AltStore e SideStore.
 ## [Non rilasciato]
 
 ### Aggiunto
+- **Sessione del sito** nell'app iPhone: con i servizi per app disattivati sul portale (come su La Statale Open) l'app funziona lo stesso.
+  Dopo il login di Ateneo legge corsi, sezioni e attività, scadenze e avvisi con la sessione del sito (`lib/ajax/service.php`, come le pagine
+  del portale), segna le attività come completate e, quando la sessione scade, rifà il login da sola in una pagina invisibile.
+  Promemoria e aggiornamento in background funzionano anche così. *Altro → Account → Collegamento* mostra la strada in uso.
 - **App web** (`docs/`, pubblicata con GitHub Pages): stesse schermate e stessa logica dell'app iPhone, collegata al portale
   con gli stessi web service. Accesso con email e password o con la chiave dell'app, verifica del collegamento, modalità web,
   dati di esempio, copia offline, scadenze nel Calendario (`.ics` con avvisi 24 h e 2 h prima), installabile sulla schermata Home.
 - Test dell'app web: logica condivisa (`node --test`) e prova completa nel browser con il portale simulato, anche nella CI.
+
+### Modificato
+- App web: con i servizi per app disattivati spiega che il browser non le lascia leggere il portale e rimanda all'app iPhone.
 
 ## [1.2.0] - 2026-10-12
 

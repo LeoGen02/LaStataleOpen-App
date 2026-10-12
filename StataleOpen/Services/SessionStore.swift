@@ -3,20 +3,30 @@ import WebKit
 import UserNotifications
 
 /// Stato di autenticazione dell'app.
-/// - `.ready`: abbiamo un token dei web service Moodle → interfaccia nativa.
-/// - `.webOnly`: il portale non consente l'accesso via app mobile → interfaccia basata sul sito.
+/// - `.ready`: interfaccia nativa, con i web service per app (token) oppure con la sessione del sito;
+/// - `.webOnly`: l'utente ha scelto di usare direttamente le pagine del portale.
 @MainActor
 final class SessionStore: ObservableObject {
     enum Phase {
         case checking, loggedOut, webOnly, ready
     }
 
+    /// Strada usata per leggere il portale.
+    enum Access {
+        /// Web service per app mobile (token, come l'app Moodle ufficiale).
+        case appServices
+        /// Sessione del sito (cookie del login di Ateneo + sesskey), per i portali con i servizi per app disattivati.
+        case siteSession
+    }
+
     @Published private(set) var phase: Phase = .checking
     @Published private(set) var siteInfo: SiteInfo?
+    @Published private(set) var access: Access = .appServices
     @Published var notice: String?
 
-    private(set) var client: MoodleClient?
+    private(set) var client: PortalAPI?
     private var lastAutologin: Date?
+    private var renewal: Task<SiteSessionState?, Never>?
 
     private static let siteInfoKey = "cachedSiteInfo"
     private static let webOnlyKey = "webOnlyMode"
@@ -26,6 +36,14 @@ final class SessionStore: ObservableObject {
             client = MoodleClient(token: token, privateToken: KeychainStore.get(.privateToken))
             siteInfo = Self.loadCachedSiteInfo()
             Task { await restore() }
+        } else if let state = Self.storedSiteSession() {
+            // Sessione del sito: si riparte subito con i dati salvati; se il portale l'ha chiusa
+            // la prima richiesta la rinnova da sola (SiteSessionClient → renewSiteSession).
+            access = .siteSession
+            siteInfo = Self.loadCachedSiteInfo() ?? SiteInfo(userid: state.userID, fullname: "", firstname: nil, username: nil, sitename: nil)
+            client = makeSiteClient(state)
+            phase = .ready
+            Task { await PortalCookies.restore(state.cookies) }
         } else if UserDefaults.standard.bool(forKey: Self.webOnlyKey) {
             phase = .webOnly
         } else {
@@ -34,7 +52,7 @@ final class SessionStore: ObservableObject {
     }
 
     private func restore() async {
-        guard let client else {
+        guard let client = client as? MoodleClient else {
             phase = .loggedOut
             return
         }
@@ -57,15 +75,59 @@ final class SessionStore: ObservableObject {
     func completeLogin(token: String, privateToken: String?) async throws {
         let newClient = MoodleClient(token: token, privateToken: privateToken)
         let info = try await newClient.siteInfo()
+        Self.saveSiteSession(nil)
         KeychainStore.set(token, for: .token)
         KeychainStore.set(privateToken, for: .privateToken)
         client = newClient
+        access = .appServices
         lastAutologin = nil
         apply(info)
         UserDefaults.standard.set(false, forKey: Self.webOnlyKey)
         notice = nil
         phase = .ready
         _ = await DeadlineNotifier.requestAuthorization()
+    }
+
+    /// Accesso riuscito sul sito, con i servizi per app disattivati: l'app usa la sessione del sito.
+    func completeSiteLogin(_ state: SiteSessionState) async {
+        KeychainStore.set(nil, for: .token)
+        KeychainStore.set(nil, for: .privateToken)
+        Self.saveSiteSession(state)
+        let siteClient = makeSiteClient(state)
+        client = siteClient
+        access = .siteSession
+        lastAutologin = nil
+        let fallback = SiteInfo(userid: state.userID, fullname: "", firstname: nil, username: nil, sitename: nil)
+        apply((try? await siteClient.currentUser()) ?? fallback)
+        UserDefaults.standard.set(false, forKey: Self.webOnlyKey)
+        notice = nil
+        phase = .ready
+        _ = await DeadlineNotifier.requestAuthorization()
+    }
+
+    /// Rinnova la sessione del sito quando il portale l'ha chiusa. Una sola volta anche se più richieste falliscono insieme.
+    func renewSiteSession() async -> SiteSessionState? {
+        if let renewal { return await renewal.value }
+        let task = Task { @MainActor () -> SiteSessionState? in
+            // 1. Il browser interno ha già una sessione valida (es. ha appena rifatto il login)?
+            if let adopted = await SiteSessionClient.adopt(cookies: await PortalCookies.current()) { return adopted }
+            // 2. Login di Ateneo in una WebView invisibile, con le credenziali del Portachiavi.
+            return await SilentLogin.run()
+        }
+        renewal = task
+        let state = await task.value
+        renewal = nil
+        if let state, access == .siteSession, phase == .ready {
+            Self.saveSiteSession(state)
+        }
+        return state
+    }
+
+    /// Nome per il saluto, se al login non era arrivato (sessione del sito).
+    func refreshSiteUserIfNeeded() async {
+        guard let siteClient = client as? SiteSessionClient, (siteInfo?.greetingName ?? "").isEmpty,
+              let info = try? await siteClient.currentUser() else { return }
+        apply(info)
     }
 
     func useWebOnlyMode() {
@@ -91,8 +153,9 @@ final class SessionStore: ObservableObject {
 
     /// Per le pagine Moodle prova ad usare l'autologin (tool_mobile), così la WebView è sempre autenticata.
     /// Moodle limita le richieste di chiave a una ogni ~6 minuti: nel frattempo valgono i cookie già ottenuti.
+    /// Con la sessione del sito i cookie sono già nella WebView.
     func webURL(for target: URL) async -> URL {
-        guard let client, client.privateToken != nil, let userID = siteInfo?.userid,
+        guard let client = client as? MoodleClient, client.privateToken != nil, let userID = siteInfo?.userid,
               target.host?.lowercased() == SiteConfig.moodleHost else { return target }
         if let lastAutologin, Date().timeIntervalSince(lastAutologin) < 6 * 60 { return target }
         lastAutologin = Date()
@@ -104,13 +167,23 @@ final class SessionStore: ObservableObject {
         ])
     }
 
+    private func makeSiteClient(_ state: SiteSessionState) -> SiteSessionClient {
+        SiteSessionClient(state: state) { [weak self] in
+            await self?.renewSiteSession()
+        }
+    }
+
     private func clearToken() {
         KeychainStore.set(nil, for: .token)
         KeychainStore.set(nil, for: .privateToken)
+        Self.saveSiteSession(nil)
         UserDefaults.standard.removeObject(forKey: Self.siteInfoKey)
         PortalCache.clear()
+        renewal?.cancel()
+        renewal = nil
         client = nil
         siteInfo = nil
+        access = .appServices
         lastAutologin = nil
     }
 
@@ -124,6 +197,17 @@ final class SessionStore: ObservableObject {
     private static func loadCachedSiteInfo() -> SiteInfo? {
         guard let data = UserDefaults.standard.data(forKey: siteInfoKey) else { return nil }
         return try? JSONDecoder().decode(SiteInfo.self, from: data)
+    }
+
+    /// Sessione del sito salvata nel Portachiavi (cookie e sesskey valgono quanto una password finché il portale non li scade).
+    nonisolated static func storedSiteSession() -> SiteSessionState? {
+        guard let json = KeychainStore.get(.siteSession) else { return nil }
+        return try? JSONDecoder().decode(SiteSessionState.self, from: Data(json.utf8))
+    }
+
+    private static func saveSiteSession(_ state: SiteSessionState?) {
+        let json = state.flatMap { try? JSONEncoder().encode($0) }.flatMap { String(data: $0, encoding: .utf8) }
+        KeychainStore.set(json, for: .siteSession)
     }
 }
 
@@ -153,6 +237,7 @@ final class PortalData: ObservableObject {
         guard !isLoading, let client = session.client, let userID = session.siteInfo?.userid else { return }
         isLoading = true
         defer { isLoading = false }
+        await session.refreshSiteUserIfNeeded()
 
         // Se il portale non risponde restano i dati della copia locale, con la loro data.
         var reachedPortal = false

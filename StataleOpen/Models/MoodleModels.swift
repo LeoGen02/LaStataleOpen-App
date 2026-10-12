@@ -6,6 +6,11 @@ struct SiteInfo: Codable, Equatable {
     let firstname: String?
     let username: String?
     let sitename: String?
+
+    /// Nome per il saluto; nil se il portale non l'ha ancora detto.
+    var greetingName: String? {
+        [firstname, fullname].compactMap { $0?.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
+    }
 }
 
 struct Course: Codable, Identifiable, Hashable {

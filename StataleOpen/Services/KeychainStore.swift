@@ -4,7 +4,7 @@ import Security
 /// Salva token e credenziali nel Portachiavi di iOS (mai in chiaro, mai nel repository).
 enum KeychainStore {
     enum Key: String {
-        case token, privateToken, username, password
+        case token, privateToken, username, password, siteSession
     }
 
     private static let service = "it.leonardo.stataleopen"
