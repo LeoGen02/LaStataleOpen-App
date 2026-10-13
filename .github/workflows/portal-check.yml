@@ -62,7 +62,7 @@ jobs:
     name: Ponte pubblicato su GitHub Pages
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Il preferito carica il ponte con l'impronta SHA-384 e crossorigin: il file pubblicato deve essere identico
       # a quello del repository e avere Access-Control-Allow-Origin. Aspetta la pubblicazione (fino a 10 minuti).
