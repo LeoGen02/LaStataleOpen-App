@@ -28,7 +28,7 @@ jobs:
       build: ${{ steps.meta.outputs.build }}
       sha256: ${{ steps.package.outputs.sha256 }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # serve la storia completa per il numero di build
 
