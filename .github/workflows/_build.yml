@@ -111,7 +111,7 @@ jobs:
           echo "SHA-256: $SHA"
 
       - name: Carica l'ipa come artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: StataleOpen-ipa
           path: ${{ runner.temp }}/StataleOpen.ipa
