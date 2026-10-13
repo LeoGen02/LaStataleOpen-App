@@ -41,6 +41,8 @@ che viaggiano direttamente tra il browser e il portale dell'Ateneo.
   registra nell'archivio dell'estensione la richiesta dell'app (solo identificativi numerici, niente titoli), valida 10 minuti e usata una volta:
   la cancella quando la usa, quando la trova scaduta o quando arriva la successiva. Sul portale legge soltanto l'utente della pagina
   (`M.cfg.userId`, per sapere se sei entrato). Non legge cookie, password o contenuti e non fa richieste di rete.
+  Con la versione 2 l'app gli lascia anche una richiesta di sola lettura per il ritorno dopo il login (spegnibile in *Altro*), e sulla pagina
+  di login di Ateneo lo script annota soltanto l'ora in cui la apri: non legge i campi, quindi né l'email né la password.
 
 ## Con chi parla l'app
 

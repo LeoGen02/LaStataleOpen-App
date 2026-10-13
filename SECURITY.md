@@ -38,9 +38,16 @@ Per verificare a mano: `openssl dgst -sha384 -binary docs/ponte/ponte-1.js | bas
 
 ### Ponte automatico (estensione Userscripts)
 
-`docs/ponte/statale-open-1.user.js` fa le veci del tocco sul preferito e nient'altro: `@match` solo sul portale e sulla pagina dell'app,
+`docs/ponte/statale-open-2.user.js` (e la versione 1, ancora pubblicata per chi l'ha installata) fa le veci del tocco sul preferito
+e nient'altro: `@match` solo sul portale, sulla pagina dell'app e (versione 2) sulla pagina di login di Ateneo di La Statale Open,
 nessuna richiesta di rete, nessun `@require`/`@updateURL` (non si aggiorna da solo), immutabile come il ponte (impronta in `PONTE.known`,
 controllata dalla CI). Sul portale carica `ponte/ponte-1.js` con la stessa `integrity` del preferito solo se l'indirizzo contiene
 una richiesta dell'app; un link costruito ad arte può al massimo far leggere i tuoi dati e consegnarli alla tua app (che chiede conferma
 se non li aveva chiesti), mentre le scritture restano da confermare nel pannello.
+
+Ritorno dopo il login (versione 2): sulla pagina di login di Ateneo lo script annota solo l'ora in cui la apri o invii il modulo, senza leggere
+i campi né toccare il modulo. La prima pagina del portale aperta da entrato nei 10 minuti successivi consuma l'annotazione; se è la pagina
+d'arrivo (`/`, `/my/`, `/my/courses.php`) e l'app ha lasciato allo script la sua richiesta di **sola lettura** (lo script rifiuta richieste con
+modifiche o con ritorno diverso dall'indirizzo), parte il ponte e i dati tornano all'app, che li riconosce senza chiedere conferma.
+Un sito esterno che apre la pagina di login e poi il portale può al massimo far leggere i tuoi dati e riportarli alla tua app.
 

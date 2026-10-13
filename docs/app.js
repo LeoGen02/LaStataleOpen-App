@@ -97,9 +97,9 @@
   var KEYS = {
     session: "so.session", phase: "so.phase", settings: "so.settings", update: "so.update", demo: "so.demo", toggles: "so.demo.toggles",
     ponteSnap: "so.ponte.snap", ponteBox: "so.ponte.outbox", ponteReq: "so.ponte.req", ponteLast: "so.ponte.last", ponteFail: "so.ponte.fail",
-    ponteAuto: "so.ponte.auto"
+    ponteAuto: "so.ponte.auto", ponteStanding: "so.ponte.standing"
   };
-  var PONTE_KEYS = [KEYS.ponteSnap, KEYS.ponteBox, KEYS.ponteReq, KEYS.ponteLast, KEYS.ponteFail, KEYS.ponteAuto];
+  var PONTE_KEYS = [KEYS.ponteSnap, KEYS.ponteBox, KEYS.ponteReq, KEYS.ponteLast, KEYS.ponteFail, KEYS.ponteAuto, KEYS.ponteStanding];
   function readJSON(key, fallback) { try { var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; } }
   function writeJSON(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* archivio non disponibile */ } }
   function removeKey(key) { try { localStorage.removeItem(key); } catch (e) { /* archivio non disponibile */ } }
@@ -485,6 +485,7 @@
     autoReturn: settings.autoReturn !== false,
     // Acceso di serie (chiave nuova: chi aveva il vecchio interruttore spento di serie lo ritrova acceso).
     autoSync: settings.autoOpen !== false,
+    loginReturn: settings.loginReturn !== false,
     email: settings.email || "", emailSaved: false,
     seen: settings.seen || null,
     demoNotifAuth: settings.demoNotifAuth === undefined ? null : settings.demoNotifAuth,
@@ -503,7 +504,7 @@
   }
   resetStacks();
   function saveSettings() {
-    writeJSON(KEYS.settings, { program: S.program, reminders: S.reminders, autoReturn: S.autoReturn, autoOpen: S.autoSync, email: S.email, seen: S.seen, demoNotifAuth: S.demoNotifAuth });
+    writeJSON(KEYS.settings, { program: S.program, reminders: S.reminders, autoReturn: S.autoReturn, autoOpen: S.autoSync, loginReturn: S.loginReturn, email: S.email, seen: S.seen, demoNotifAuth: S.demoNotifAuth });
   }
   function saveToggles() { writeJSON(KEYS.toggles, S.demo); }
   function saveUpdate() { writeJSON(KEYS.update, { available: S.update.available, lastCheck: S.update.lastCheck }); }
@@ -525,6 +526,7 @@
     await restoreSession();
     if (incoming) await importText(incoming, "frag");
     S.ponte.incoming = false;
+    armStanding();
     if (!incoming) maybeAutoSync();
   }
   async function restoreSession() {
@@ -819,8 +821,50 @@
   }
   // Ponte automatico: lo script dell'estensione Userscripts segnala sulla pagina dell'app di essere installato.
   // Nelle app della schermata Home e nelle schede interne le estensioni di Safari non girano: lì resta il preferito.
-  function autoBridge() {
-    return !EMBEDDED && !isStandalone() && document.documentElement.getAttribute("data-statale-open-auto") === "1";
+  function autoVersion() {
+    if (EMBEDDED || isStandalone()) return 0;
+    var v = document.documentElement.getAttribute("data-statale-open-auto");
+    return v === "1" ? 1 : v === "2" ? 2 : 0;
+  }
+  function autoBridge() { return autoVersion() > 0; }
+  // Script della versione 1: funziona, ma non riporta all'app dopo il login fatto dalla pagina di Ateneo.
+  function autoOld() { return autoVersion() > 0 && autoVersion() < C.PONTE.userscriptVersion; }
+  // Ritorno dopo il login (script 2): l'app lascia allo script una richiesta di sola lettura (nessuna modifica, ritorno
+  // nell'indirizzo). Quando entri dalla pagina di login di Ateneo e arrivi alla pagina iniziale o alla Dashboard, lo script
+  // la usa e torni qui con i dati. La stessa richiesta resta valida finché non viene usata (o per 7 giorni).
+  function wantsLoginReturn() {
+    return S.loginReturn && S.autoReturn && S.mode !== "demo" && S.phase !== "web" && S.phase !== "checking" &&
+      (S.mode === "bridge" || S.phase === "login" || S.phase === "ponte");
+  }
+  // Una pagina d'arrivo del portale aperta dall'app (la Dashboard): dopo un login lì si resta, non si torna all'app.
+  var standingPaused = false;
+  function portalLanding(url) {
+    try { var u = new URL(url); return u.origin === C.ORIGIN && /^\/(?:index\.php|my\/(?:index\.php|courses\.php)?)?$/.test(u.pathname); } catch (e) { return false; }
+  }
+  function armStanding() {
+    // All'avvio (e mentre arrivano i dati) non si tocca: la richiesta in uso serve a riconoscere i dati in arrivo.
+    if (autoVersion() < 2 || S.phase === "checking" || S.ponte.incoming || importing) return;
+    // Impostazioni dall'archivio, condiviso tra le schede: così due schede aperte non si contraddicono.
+    var saved = readJSON(KEYS.settings, {}), text = "off";
+    if (!standingPaused && wantsLoginReturn() && saved.loginReturn !== false && saved.autoReturn !== false) {
+      var cur = readJSON(KEYS.ponteStanding, null), tree = needsTree() ? S.program.id : null;
+      // Una richiesta ancora valida resta quella: se ne fa una nuova solo se scaduta o se ora servono i percorsi.
+      if (!cur || typeof cur.text !== "string" || !(Date.now() - cur.at < 7 * D) || (cur.tree == null && tree != null)) {
+        var r = C.buildRequest(C.emptyBox(null), { ret: "frag", tree: tree });
+        cur = { rid: r.pending.rid, at: r.pending.at, tree: tree, text: r.text };
+        writeJSON(KEYS.ponteStanding, cur);
+      }
+      text = cur.text;
+    }
+    var root = document.documentElement;
+    if (root.getAttribute("data-statale-open-standing") === text) return;
+    root.setAttribute("data-statale-open-standing", text);
+    try { document.dispatchEvent(new CustomEvent("statale-open-standing")); } catch (e) { /* evento non disponibile */ }
+  }
+  // Dati arrivati con la richiesta per il ritorno dopo il login.
+  function fromLogin(snap) {
+    var st = readJSON(KEYS.ponteStanding, null);
+    return !!(st && snap.res && snap.res.rid === st.rid);
   }
   // Un aggiornamento automatico partito da poco non è tornato con i dati: l'estensione non è attiva o il portale non ha risposto.
   function autoVerified() { var a = readJSON(KEYS.ponteAuto, null); return !!(a && a.ok); }
@@ -934,7 +978,7 @@
     var last = readJSON(KEYS.ponteLast, null);
     if (last && last.sid === snap.sid) { S.sync = null; toast("Questi dati sono già stati importati"); return; }
     var prev = readJSON(KEYS.ponteSnap, null), pending = readJSON(KEYS.ponteReq, null);
-    var matched = !!(pending && snap.res && snap.res.rid === pending.rid);
+    var matched = !!(pending && snap.res && snap.res.rid === pending.rid) || fromLogin(snap);
     var who = snap.user.name || "account " + snap.user.id;
     function ask(title, message, replace) {
       showAlert(title, message, [{ label: "Annulla" }, { label: "Importa", role: "cancel", act: function () { commitImport(snap, replace); } }]);
@@ -987,6 +1031,8 @@
       if (pending && pending.auto) writeJSON(KEYS.ponteAuto, { ok: Date.now() });
       removeKey(KEYS.ponteReq);
     }
+    // Richiesta del ritorno dopo il login usata: se ne lascia una nuova allo script.
+    if (fromLogin(snap)) { writeJSON(KEYS.ponteAuto, { ok: Date.now() }); removeKey(KEYS.ponteStanding); }
     S.ponte.notes = rec.notes; S.ponte.note = null;
     // Primo collegamento (o ritorno da demo, portale, modalità web): si passa ai dati del ponte.
     if (S.mode !== "bridge" || S.phase !== "app") {
@@ -1028,6 +1074,7 @@
   function openURL(url, title) {
     if (!url) return;
     if (S.mode === "demo") { openDemoBrowser(url, title); return; }
+    if (portalLanding(url) && autoVersion() >= 2) { standingPaused = true; armStanding(); }
     var w = window.open(url, "_blank");
     if (w) { try { w.opener = null; } catch (e) { /* già isolata */ } }
     else location.href = url;
@@ -1387,6 +1434,8 @@
           (autoVerified() ? "Il portale potrebbe non aver risposto o l'accesso non si è concluso: riprova." : "Controlla che in Safari l'estensione Userscripts sia consentita anche su lastataleopen.myariel.unimi.it (menu della pagina → Userscripts), poi riprova.") +
           "</span></span></div>" +
         '<button class="cell accent-row" data-a="ponte-setup">' + ic("link") + '<span class="t">Istruzioni e preferito di riserva</span></button>' : "") +
+      (autoOld() ? '<button class="cell accent-row" data-a="ponte-setup">' + ic("down") + '<span class="cell-main"><span class="t">Aggiorna lo script del ponte automatico</span>' +
+          "<span class=\"s\">Con la versione " + C.PONTE.userscriptVersion + ", dopo il login dalla pagina di Ateneo torni qui da solo con i dati.</span></span>" + ic("chevR", ' class="chev"') + "</button>" : "") +
       (!stuck && autoPaused() ? '<div class="cell notice">' + ic("warn") + "<span>Aggiornamento automatico all'apertura in pausa: l'ultimo giro non è tornato con i dati. Tocca «Aggiorna dal portale» per riprovare.</span></div>" : "") +
       (awaitingPaste() ? '<button class="cell accent-row" data-a="sync-paste">' + ic("copy") + '<span class="cell-main"><span class="t">Incolla i dati copiati dal portale</span></span></button>' : "") +
       '<button class="cell accent-row" data-a="sync-now">' + ic("refresh") + '<span class="cell-main"><span class="t">Aggiorna dal portale</span><span class="s' + (age === "fresh" ? "" : " orange") + '">' + esc(sub) + "</span>" +
@@ -1401,8 +1450,9 @@
     var ops = C.pendingOps(readBox());
     var rows = labeled("Dati del portale", PB.snap ? "letti " + C.relative(PB.snap.at) : "non ancora letti") +
       labeled("Ponte", "versione " + (PB.snap ? PB.snap.bv : C.PONTE.version) + (isStandalone() ? " · schermata Home" : " · Safari")) +
-      labeled("Ponte automatico", autoBridge() ? (autoVerified() ? "attivo ✓" : "installato · da provare") : isStandalone() ? "solo in Safari" : "non installato") +
+      labeled("Ponte automatico", autoOld() ? "script " + autoVersion() + " · da aggiornare" : autoBridge() ? (autoVerified() ? "attivo ✓" : "installato · da provare") : isStandalone() ? "solo in Safari" : "non installato") +
       (autoBridge() && S.autoReturn ? switchRow("Aggiorna da solo all'apertura", "autoSync") : "") +
+      (autoVersion() >= 2 && S.autoReturn ? switchRow("Torna all'app dopo il login sul portale", "loginReturn") : "") +
       '<button class="cell accent-row" data-a="sync-now">' + ic("refresh") + '<span class="t">Aggiorna dal portale</span></button>' +
       ops.map(function (op) {
         return '<div class="cell"><span class="cell-main"><span class="t">' + esc(opLabel(op)) + '</span><span class="s">Da inviare al portale' +
@@ -1416,6 +1466,7 @@
     return group("Ponte con il portale", rows,
       "Il ponte legge corsi, scadenze e avvisi solo quando tocchi il preferito «Statale Open» o, con il ponte automatico, quando tocchi «Aggiorna dal portale». " +
       (autoBridge() ? "Con «Aggiorna da solo all'apertura» l'app va al portale e torna quando la apri con dati più vecchi di un'ora. " : "") +
+      (autoVersion() >= 2 ? "Con «Torna all'app dopo il login sul portale», quando entri dalla pagina di login di Ateneo e arrivi alla Dashboard lo script torna qui con i dati (solo lettura, nessuna modifica). " : "") +
       "Il preferito esegue solo il file con impronta " + esc(C.PONTE.sri.slice(0, 19)) + "…: se il file cambiasse, il browser lo rifiuterebbe." +
       (isStandalone() ? "" : " Con il ritorno automatico i dati tornano all'app nell'indirizzo della scheda (Safari può tenerli nella cronologia); spento, passano dagli appunti, anche con il ponte automatico."));
   }
@@ -1471,6 +1522,12 @@
         (awaitingPaste() && pendingRequest().ret === "clip" ? '<div class="group"><button class="btn-secondary" data-a="sync-paste">' + ic("copy") + "Incolla i dati copiati dal portale</button></div>" : "") +
         '<div class="group"><button class="btn-primary" data-a="sync-now"' + (S.ponte.starting ? " disabled" : "") + ">" +
           (S.ponte.starting ? spinner() + "Apro il portale…" : ic(first ? "personKey" : "globe") + (first ? "Accedi" : "Aggiorna dal portale")) + "</button></div>" +
+        (autoOld() ? group("Aggiorna lo script (versione " + C.PONTE.userscriptVersion + ")",
+          text("Con la nuova versione, quando entri dalla pagina di login di Ateneo torni qui da solo con i dati. Tocca il pulsante qui sotto: si apre il testo dello script. " +
+            "Lì tocca il pulsante a sinistra dell'indirizzo → <b>Userscripts</b>: il riquadro verde dice «Userscript Installed» (è normale, il nome è lo stesso). " +
+            "Tocca <b>Tap to re-install</b> → <b>Install</b>: la versione nuova prende il posto della vecchia. Poi torna a questa scheda.") +
+          '<a class="cell accent-row" href="' + esc(appBase() + C.PONTE.userscript) + '" target="_blank" rel="noopener" data-a="script-opened">' + ic("down") + '<span class="t">Apri lo script nuovo</span></a>',
+          "Non scaricare il file: si aggiungerebbe una seconda copia accanto alla vecchia. Per il ritorno dopo il login Userscripts deve essere consentito anche su elearning.unimi.it: scegli «tutti i siti web».") : "") +
         (verified || stuck ? "" : group("Se resti sul portale", text("Se dopo l'accesso resti sulla pagina del portale senza tornare qui, su quella pagina tocca il pulsante a sinistra dell'indirizzo → <b>Userscripts</b> e consenti sempre l'accesso (meglio su tutti i siti web), poi torna qui e riprova."))) +
         bookmarkToggle + paste + '<p class="hint">' + homeIcon + "</p>";
     } else {
@@ -1482,7 +1539,7 @@
         group("2 · Attiva l'estensione in Safari", steps([
           "Tocca il pulsante a sinistra della barra degli indirizzi (menu della pagina) → <b>Gestisci estensioni</b> e attiva <b>Userscripts</b>.",
           "Dallo stesso menu tocca <b>Userscripts</b> e consenti sempre l'accesso, su <b>tutti i siti web</b>. Non scegliere «per un giorno»."
-        ]), "In alternativa: Impostazioni → App → Safari → Estensioni → Userscripts, attiva l'estensione e consenti tutti i siti web.") +
+        ]), "Servono tre siti: questa app, il portale e la pagina di login di Ateneo; «tutti i siti web» li copre. In alternativa: Impostazioni → App → Safari → Estensioni → Userscripts, attiva l'estensione e consenti tutti i siti web.") +
         group("3 · Installa lo script",
           text("Si apre il testo dello script, ed è normale. Su quella pagina tocca il pulsante a sinistra dell'indirizzo → <b>Userscripts</b> → <b>Tap to install</b> → <b>Install</b>. Poi torna a questa scheda.") +
           '<a class="cell accent-row" href="' + esc(appBase() + C.PONTE.userscript) + '" target="_blank" rel="noopener" data-a="script-opened">' + ic("down") + '<span class="t">Apri lo script del ponte automatico</span></a>' +
@@ -1612,7 +1669,8 @@
       var services = !!(L.diag && L.diag.ok);
       var auto = autoBridge(), standalone = isStandalone(), starting = !!S.ponte.starting;
       var how = auto
-        ? "Si apre la pagina ufficiale del portale: se serve, accedi con l'email @studenti.unimi.it e la password della posta di Ateneo (Safari può compilarle da solo). Poi torni qui con corsi, scadenze e avvisi, e per aggiornarli basta un tocco."
+        ? "Si apre la pagina ufficiale del portale: se serve, accedi con l'email @studenti.unimi.it e la password della posta di Ateneo (Safari può compilarle da solo). Poi torni qui con corsi, scadenze e avvisi, e per aggiornarli basta un tocco." +
+          (autoVersion() >= 2 ? " Anche se entri direttamente dalla pagina di login di Ateneo, dopo «Entra» torni qui da solo." : "")
         : standalone
         ? "Aperta dalla schermata Home l'app non può usare le estensioni di Safari: tocca «Accedi» per i passaggi con il preferito, oppure apri l'app in Safari."
         : "Una volta sola serve l'estensione gratuita Userscripts per Safari: tocca «Accedi» e segui i passaggi (un paio di minuti). Dopo, «Accedi» apre la pagina ufficiale del portale e ti riporta qui con i tuoi dati.";
@@ -1866,6 +1924,7 @@
         if (caret != null) { try { el.setSelectionRange(caret, caret); } catch (e) { /* campo senza selezione */ } }
       }
     }
+    armStanding();
   }
 
   // ---------- Gesti: tira per aggiornare, tieni premuto, scorri ----------
@@ -2164,8 +2223,10 @@
 
   // Ritorno in primo piano: aggiorna se i dati hanno più di 5 minuti (MainTabView) e ricontrolla gli aggiornamenti.
   document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState !== "visible") return;
-    if (S.phase === "ponte" && S.ponte.scriptAt && Date.now() - S.ponte.scriptAt < 30 * 60e3 && !autoBridge()) {
+    // In secondo piano lo script potrebbe aver usato o perso la richiesta per il ritorno dopo il login: al ritorno si riconsegna.
+    if (document.visibilityState !== "visible") { document.documentElement.removeAttribute("data-statale-open-standing"); return; }
+    standingPaused = false;
+    if (S.phase === "ponte" && S.ponte.scriptAt && Date.now() - S.ponte.scriptAt < 30 * 60e3 && autoVersion() < C.PONTE.userscriptVersion) {
       S.ponte.scriptAt = 0;
       location.reload();
       return;
@@ -2180,7 +2241,12 @@
   });
   window.addEventListener("online", function () { if (document.visibilityState === "visible") maybeAutoSync(); });
   // Tornando indietro dal portale Safari ripristina la pagina com'era: si ridisegna per l'avviso del giro non concluso.
-  window.addEventListener("pageshow", function (ev) { if (ev.persisted) { S.ponte.starting = false; S.ponte.incoming = false; render(); } });
+  window.addEventListener("pageshow", function (ev) {
+    if (!ev.persisted) return;
+    S.ponte.starting = false; S.ponte.incoming = false; standingPaused = false;
+    document.documentElement.removeAttribute("data-statale-open-standing");
+    render();
+  });
   // Lo script del ponte automatico arriva a pagina caricata: si ridisegna (un tocco) e, se scelto, si aggiorna da solo.
   function autoDetected() {
     if (S.phase === "app" || S.phase === "ponte" || S.phase === "login") render();
@@ -2197,7 +2263,13 @@
   });
   // Un'altra scheda dell'app ha importato dati o cambiato le modifiche in attesa.
   window.addEventListener("storage", function (ev) {
-    if (!ev.key || ev.key.indexOf("so.ponte.") !== 0 || S.mode !== "bridge" || S.phase !== "app") return;
+    if (ev.key === KEYS.settings) {
+      var st = readJSON(KEYS.settings, {});
+      S.autoReturn = st.autoReturn !== false; S.autoSync = st.autoOpen !== false; S.loginReturn = st.loginReturn !== false;
+      if (!S.alert && !S.ctx && !S.sync) render();
+      return;
+    }
+    if (!ev.key || ev.key === KEYS.ponteStanding || ev.key.indexOf("so.ponte.") !== 0 || S.mode !== "bridge" || S.phase !== "app") return;
     if (loadSnap()) { applyBridge(); render(); }
   });
   // Tempi relativi aggiornati ogni minuto, senza disturbare chi scrive o guarda una pagina.

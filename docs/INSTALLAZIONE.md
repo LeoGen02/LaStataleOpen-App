@@ -14,20 +14,22 @@ che tocchi su una pagina di La Statale Open in cui sei già entrato. Il ponte le
 Con l'estensione gratuita **Userscripts** per Safari l'accesso parte dall'app: tocchi **Accedi**, si apre la pagina ufficiale del portale,
 entri con il login di Ateneo (email `@studenti.unimi.it` e password della posta di Ateneo, che Safari può compilare da solo)
 e l'app si riapre con corsi, scadenze e avvisi. Da lì **Aggiorna dal portale** è un solo tocco, e l'app si aggiorna anche da sola
-quando la apri con dati più vecchi di un'ora. La password la scrivi solo sul portale: l'app non la vede e non la salva.
+quando la apri con dati più vecchi di un'ora. Anche se entri direttamente dalla pagina di login di Ateneo
+(per esempio da un tuo preferito), dopo **Entra** torni da solo all'app con i dati.
+La password la scrivi solo sul portale: l'app non la vede e non la salva.
 
 Nell'app tocca **Accedi**: la prima volta compaiono quattro passaggi, ognuno con il suo pulsante.
 
 1. Installa dall'App Store l'app **Userscripts** (gratuita e open source) e aprila una volta.
 2. In Safari tocca il pulsante a sinistra della barra degli indirizzi (il menu della pagina) → **Gestisci estensioni** e attiva **Userscripts**.
-   Poi, dallo stesso menu → **Userscripts**, consenti **sempre** l'accesso: a tutti i siti web, oppure sia sulla pagina dell'app
-   sia su una pagina di La Statale Open (`lastataleopen.myariel.unimi.it`). Non scegliere «per un giorno»: scadrebbe.
+   Poi, dallo stesso menu → **Userscripts**, consenti **sempre** l'accesso su **tutti i siti web**. Servono tre siti: la pagina dell'app,
+   il portale (`lastataleopen.myariel.unimi.it`) e la pagina di login di Ateneo (`elearning.unimi.it`). Non scegliere «per un giorno»: scadrebbe.
 3. Nell'app tocca **Apri lo script del ponte automatico** (passaggio 3; anche da *Altro → Ponte con il portale*).
    Si apre il **testo** dello script: è normale, l'installazione non parte da sola. Su quella pagina tocca l'icona del menu
    nella barra degli indirizzi (aA) → **Userscripts** (se Safari chiede il permesso, consenti sempre). In alto nella finestra
    di Userscripts compare **Tap to install**: toccalo, poi **Install** (la finestra dell'estensione è in inglese).
    Se *Userscripts* non è nel menu, tocca **Gestisci estensioni** e attivala. Se *Tap to install* non compare, nell'app tocca
-   **Scarica il file**, poi in *File → Download* tieni premuto `statale-open-1.user.js` → **Sposta** → *Sul mio iPhone → Userscripts*
+   **Scarica il file**, poi in *File → Download* tieni premuto `statale-open-2.user.js` → **Sposta** → *Sul mio iPhone → Userscripts*
    e apri una volta il menu di Userscripts in Safari.
 4. Torna alla scheda dell'app: la pagina si ricarica da sola (oppure tocca **Ho fatto: controlla**) e compare **Ponte automatico installato**
    con il pulsante **Accedi**. Toccalo, entra con il login di Ateneo e l'app si riapre con i tuoi dati; al primo giro riuscito il ponte
@@ -36,6 +38,14 @@ Nell'app tocca **Accedi**: la prima volta compaiono quattro passaggi, ognuno con
 
 - **Modifiche da inviare** (avvisi letti, attività completate): il pannello del ponte chiede **Applica e aggiorna**, l'unico tocco in più.
 - **Ritorno automatico in Safari** (*Altro*) deve restare acceso: spento, i dati tornano dagli appunti anche con il ponte automatico.
+- **Ritorno dopo il login**: *Altro → Ponte con il portale → Torna all'app dopo il login sul portale* (acceso di serie). Quando entri dalla
+  pagina di login di Ateneo e arrivi alla Dashboard (o alla pagina iniziale, o a *I miei corsi*), lo script legge i dati e riapre l'app.
+  Se dopo il login arrivi a un'altra pagina (per esempio un'attività aperta dall'app) resti lì. È solo lettura: le modifiche da inviare
+  partono soltanto con «Aggiorna dal portale». Spegnilo se vuoi entrare nel portale senza tornare all'app.
+- **Hai già lo script versione 1?** L'app lo segnala in Home (*Aggiorna lo script del ponte automatico*): tocca **Apri lo script nuovo**,
+  poi sulla pagina dello script menu della pagina → **Userscripts**. Il riquadro verde dice «Userscript Installed» (il nome è lo stesso):
+  tocca **Tap to re-install** → **Install** e la versione nuova prende il posto della vecchia. Non scaricare il file per aggiornare: si aggiungerebbe
+  una seconda copia. La versione 1 continua a funzionare, ma non riporta all'app dopo il login fatto dalla pagina di Ateneo.
 - *Altro → Ponte con il portale → Aggiorna da solo all'apertura* (acceso di serie) aggiorna quando apri l'app con dati più vecchi di un'ora.
   Se un giro non torna, non riprova da solo finché un aggiornamento non riesce. Puoi spegnerlo dallo stesso interruttore.
 - **Icona sulla schermata Home**: in Safari *Condividi → Aggiungi alla schermata Home* e **spegni «Apri come app web»** (iOS 26).
@@ -78,6 +88,7 @@ Sul computer basta trascinare il pulsante **★ Statale Open** della schermata d
 | *Non hai ancora effettuato l'accesso al portale* | tocca **Accedi** nel pannello, entra con il login di Ateneo e tocca di nuovo il preferito |
 | *La sessione del portale è scaduta* | ricarica la pagina e accedi, poi tocca di nuovo il preferito oppure, con il ponte automatico, torna all'app e tocca di nuovo **Aggiorna dal portale** |
 | *Questa pagina non è adatta al ponte* | apri la Dashboard del portale (pannello → **Apri la Dashboard**) e riprova |
+| *Dopo il login dalla pagina di Ateneo resto sul portale* | serve lo script versione 2 con Userscripts consentito su tutti i siti web (anche `elearning.unimi.it`); in *Altro → Ponte con il portale* «Torna all'app dopo il login sul portale» deve essere acceso. Apri una volta l'app in Safari dopo averlo installato: è lei a preparare il ritorno |
 | *L'aggiornamento automatico non è tornato con i dati* | in Safari, sulla pagina del portale: menu della pagina → **Userscripts** → consenti sempre; nell'app Userscripts lo script «Statale Open · ponte automatico» deve essere attivo. Poi riprova dall'app |
 | *Il ponte automatico non ha risposto* | sulla pagina dell'app: menu della pagina → **Gestisci estensioni** → Userscripts attiva e consentita su questo sito |
 | *Negli appunti non ci sono dati del ponte* | nel pannello sul portale tocca **Copia per l'app**, poi **Incolla i dati**; in alternativa **Scarica i dati in un file** e nell'app **Scegli un file** |

@@ -69,7 +69,8 @@ L'app web sta in `docs/` ed è statica: `index.html`, `app.css`, `core.js` (logi
   `echo "sha384-$(openssl dgst -sha384 -binary docs/ponte/ponte-2.js | base64 -w0)"`. `.gitattributes` tiene i byte identici.
   Test: `node --test scripts/web/*.test.js` (logica, sicurezza statica, impronte) e `node scripts/web/e2e-ponte.js` (portale simulato in
   `scripts/web/mock-portal.js`, preferito eseguito con il controllo SRI vero). Dopo il push *Controllo del portale* verifica la copia su Pages.
-  Ponte automatico: `docs/ponte/statale-open-N.user.js` è immutabile come il ponte (voce in `PONTE.known`); se cambia il ponte,
+  Ponte automatico: `docs/ponte/statale-open-N.user.js` è immutabile come il ponte (voce in `PONTE.known`, `@version` uguale a
+  `PONTE.userscriptVersion`); le versioni vecchie restano pubblicate per chi le ha installate. Se cambia il ponte,
   serve anche uno script nuovo con la nuova impronta. In `e2e-ponte.js` lo script gira come in Safari (fine caricamento, `GM.*`).
   Da provare a mano su un iPhone: preferito toccato dalla griglia dei Preferiti, *Incolla e vai*, ritorno all'app nell'indirizzo, *Incolla i dati*
   dalla schermata Home.

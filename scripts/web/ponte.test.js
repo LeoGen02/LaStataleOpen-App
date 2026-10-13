@@ -380,7 +380,7 @@ const vm = require("node:vm");
 const USERSCRIPT = fs.readFileSync(path.join(DOCS, C.PONTE.userscript), "utf8");
 
 // Esegue lo script come l'estensione: in un ambiente finto con pagina, indirizzo e archivio GM.
-async function runUserscript({ href, html = "", top = true, gm = new Map(), useGM = true }) {
+async function runUserscript({ href, html = "", top = true, gm = new Map(), useGM = true, password = false, source = USERSCRIPT }) {
   const url = new URL(href);
   const appended = [], assigned = [], replaced = [], attrs = {}, events = [], listeners = {};
   const scripts = html ? [{ textContent: html }] : [];
@@ -394,7 +394,7 @@ async function runUserscript({ href, html = "", top = true, gm = new Map(), useG
       appendChild: (n) => appended.push(n)
     },
     head: { appendChild: (n) => appended.push(n) },
-    querySelectorAll: (sel) => (sel === "script:not([src])" ? scripts : []),
+    querySelectorAll: (sel) => (sel === "script:not([src])" ? scripts : sel === 'input[type="password"]' && password ? [{ type: "password" }] : []),
     createElement: (tag) => ({ tag }),
     addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
     dispatchEvent: (e) => { events.push(e.type); (listeners[e.type] || []).forEach((fn) => fn(e)); }
@@ -404,13 +404,13 @@ async function runUserscript({ href, html = "", top = true, gm = new Map(), useG
   const GM = useGM ? { getValue: async (k, d) => (gm.has(k) ? gm.get(k) : d), setValue: async (k, v) => { gm.set(k, v); }, deleteValue: async (k) => { gm.delete(k); } } : undefined;
   const session = new Map();
   const sandbox = {
-    window: Object.assign(window, { top: self, self }), document, location, GM, Date, JSON, Promise, alert: () => {},
+    window: Object.assign(window, { top: self, self }), document, location, GM, Date, JSON, Promise, alert: () => {}, atob, TextDecoder,
     CustomEvent: function (type) { this.type = type; },
     history: { state: null, replaceState: (s, t, u) => { replaced.push(u); } },
     sessionStorage: { getItem: (k) => (session.has(k) ? session.get(k) : null), setItem: (k, v) => session.set(k, v), removeItem: (k) => session.delete(k) }
   };
   if (!top) sandbox.window.top = {};
-  vm.runInNewContext(USERSCRIPT, sandbox);
+  vm.runInNewContext(source, sandbox);
   const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
   await settle();
   // Come fa l'app prima di aprire il portale: consegna la richiesta e aspetta la conferma.
@@ -420,7 +420,16 @@ async function runUserscript({ href, html = "", top = true, gm = new Map(), useG
     await settle();
     return attrs["data-statale-open-armed"] === req;
   }
-  return { appended, assigned, replaced, attrs, events, gm, session, arm };
+  // Richiesta per il ritorno dopo il login (o "off").
+  async function stand(req) {
+    attrs["data-statale-open-standing"] = req;
+    document.dispatchEvent(new sandbox.CustomEvent("statale-open-standing"));
+    await settle();
+    return attrs["data-statale-open-standing-ok"] === req;
+  }
+  // Invio del modulo di login.
+  async function submit() { document.dispatchEvent({ type: "submit" }); await settle(); }
+  return { appended, assigned, replaced, attrs, events, gm, session, arm, stand, submit };
 }
 const LOGGED = 'var M = {}; M.cfg = {"wwwroot":"https:\\/\\/lastataleopen.myariel.unimi.it","sesskey":"abc123","userId":42};';
 const GUEST = 'var M = {}; M.cfg = {"wwwroot":"https:\\/\\/lastataleopen.myariel.unimi.it","sesskey":"abc123","userId":0};';
@@ -430,7 +439,8 @@ test("ponte automatico: metadati, impronta del ponte, nessuna API vietata, file 
   assert.ok(USERSCRIPT.startsWith("// ==UserScript==\n"));
   const meta = USERSCRIPT.slice(0, USERSCRIPT.indexOf("// ==/UserScript=="));
   const keys = (k) => (meta.match(new RegExp("^// @" + k + "\\s+(.+)$", "gm")) || []).map((l) => l.replace(new RegExp("^// @" + k + "\\s+"), "").trim());
-  assert.deepEqual(keys("match"), ["https://lastataleopen.myariel.unimi.it/*", "https://leogen02.github.io/LaStataleOpen-App/*"]);
+  assert.deepEqual(keys("match"), ["https://lastataleopen.myariel.unimi.it/*", "https://leogen02.github.io/LaStataleOpen-App/*", "https://elearning.unimi.it/authentication/skin/lastataleopen/*"]);
+  assert.deepEqual(keys("version"), [String(C.PONTE.userscriptVersion)]);
   assert.deepEqual(keys("grant"), ["GM.getValue", "GM.setValue", "GM.deleteValue"]);
   assert.deepEqual(keys("inject-into"), ["content"]);
   assert.deepEqual(keys("run-at"), ["document-end"]);
@@ -439,15 +449,17 @@ test("ponte automatico: metadati, impronta del ponte, nessuna API vietata, file 
   assert.ok(USERSCRIPT.includes('var APP = "' + APP_BASE + '";'));
   assert.ok(USERSCRIPT.includes('var BRIDGE = APP + "' + C.PONTE.file + '";'));
   assert.ok(USERSCRIPT.includes('var INTEGRITY = "' + C.PONTE.sri + '";'));
-  for (const word of ["fetch(", "XMLHttpRequest", "xmlHttpRequest", ".cookie", "localStorage", "innerHTML", "eval(", "Function(", "postMessage", "sendBeacon", "WebSocket", "openInTab", "setClipboard", "window.open"]) {
+  for (const word of ["fetch(", "XMLHttpRequest", "xmlHttpRequest", ".cookie", "localStorage", "innerHTML", "eval(", "Function(", "postMessage", "sendBeacon", "WebSocket", "openInTab", "setClipboard", "window.open", ".value", ".submit(", ".click("]) {
     assert.ok(!USERSCRIPT.includes(word), "lo script contiene " + word);
   }
-  assert.equal(C.PONTE.known[C.PONTE.userscript], sri(C.PONTE.userscript), C.PONTE.userscript + " è cambiato: chi l'ha installato terrebbe la versione vecchia. Crea statale-open-2.user.js. Impronta attuale: " + sri(C.PONTE.userscript));
+  assert.equal(C.PONTE.known[C.PONTE.userscript], sri(C.PONTE.userscript), C.PONTE.userscript + " è cambiato: chi l'ha installato terrebbe la versione vecchia. Crea una versione nuova. Impronta attuale: " + sri(C.PONTE.userscript));
+  // Anche i file delle versioni precedenti restano pubblicati e identici.
+  for (const file of Object.keys(C.PONTE.known)) assert.equal(sri(file), C.PONTE.known[file], file + " è cambiato");
 });
 
 test("ponte automatico: sull'app segnala di essere installato e registra solo la richiesta consegnata", async () => {
   const app = await runUserscript({ href: APP_BASE + "#ponte=x" });
-  assert.equal(app.attrs["data-statale-open-auto"], "1");
+  assert.equal(app.attrs["data-statale-open-auto"], String(C.PONTE.userscriptVersion));
   assert.deepEqual(app.events, ["statale-open-auto"]);
   assert.equal(app.appended.length + app.assigned.length, 0);
   assert.equal(app.gm.size, 0, "niente registrato senza richiesta dell'app");
@@ -528,7 +540,7 @@ test("ponte automatico: una richiesta in attesa riparte solo sulla pagina d'arri
   const parked = () => new Map([["statale-open-richiesta", JSON.stringify({ req: REQ, at: Date.now(), parked: true })]]);
   const activity = await runUserscript({ href: ORIGIN + "/mod/assign/view.php?id=555", html: LOGGED, gm: parked() });
   assert.equal(activity.appended.length + activity.replaced.length, 0, "un'attività aperta in un'altra scheda non viene dirottata");
-  for (const landing of ["/", "/index.php", "/my/", "/my/index.php"]) {
+  for (const landing of ["/", "/index.php", "/my/", "/my/index.php", "/my/courses.php"]) {
     const r = await runUserscript({ href: ORIGIN + landing, html: LOGGED, gm: parked() });
     assert.equal(r.appended.length, 1, landing);
   }
@@ -536,4 +548,107 @@ test("ponte automatico: una richiesta in attesa riparte solo sulla pagina d'arri
   const old = new Map([["statale-open-richiesta", JSON.stringify({ req: REQ, at: Date.now() - 11 * 60e3, parked: true })]]);
   await runUserscript({ href: ORIGIN + "/my/", html: LOGGED, gm: old });
   assert.equal(old.size, 0);
+});
+
+// ---------- Versione 2: ritorno all'app dopo il login dalla pagina di Ateneo ----------
+const SSO_PAGE = "https://elearning.unimi.it/authentication/skin/lastataleopen/it/login.aspx?url=https%3A%2F%2Flastataleopen.myariel.unimi.it%2Flogin%2Findex.php";
+const STANDING = C.buildRequest(C.emptyBox(null), { ret: "frag", tree: 2 }).text;
+
+test("script 2: l'app lascia solo richieste di sola lettura per il ritorno dopo il login", async () => {
+  const gm = new Map();
+  const app = await runUserscript({ href: APP_BASE, gm });
+  assert.equal(await app.stand(STANDING), true);
+  assert.equal(JSON.parse(gm.get("statale-open-dopo-login")).req, STANDING);
+  const withOps = C.buildRequest({ seq: 1, ops: { "read:1": { k: "read", id: 1, n: 1, at: Date.now() } } }, { ret: "frag" }).text;
+  assert.equal(await app.stand(withOps), false, "una richiesta con modifiche non viene registrata");
+  assert.equal(await app.stand(C.buildRequest(C.emptyBox(null), { ret: "clip" }).text), false, "solo ritorno nell'indirizzo");
+  assert.equal(await app.stand("SOQ1.bm9uLWpzb24"), false);
+  assert.equal(JSON.parse(gm.get("statale-open-dopo-login")).req, STANDING, "la richiesta valida resta");
+  assert.equal(await app.stand("off"), true);
+  assert.equal(gm.has("statale-open-dopo-login"), false, "«off» la cancella");
+});
+
+test("script 2: sulla pagina di login di Ateneo annota solo l'ora, e solo lì", async () => {
+  const gm = new Map();
+  const sso = await runUserscript({ href: SSO_PAGE, password: true, gm });
+  assert.equal(sso.appended.length + sso.assigned.length + sso.replaced.length, 0);
+  const mark = JSON.parse(gm.get("statale-open-accesso"));
+  assert.deepEqual(Object.keys(mark), ["at"]);
+  await sso.submit();
+  assert.ok(JSON.parse(gm.get("statale-open-accesso")).at >= mark.at);
+  for (const href of ["https://elearning.unimi.it/authentication/skin/altro/it/login.aspx", "http://elearning.unimi.it/authentication/skin/lastataleopen/it/login.aspx"]) {
+    const other = new Map();
+    await runUserscript({ href, password: true, gm: other });
+    assert.equal(other.size, 0, href);
+  }
+  const noForm = new Map();
+  await runUserscript({ href: SSO_PAGE, password: false, gm: noForm });
+  assert.equal(noForm.size, 0, "senza modulo di login non annota nulla");
+});
+
+test("script 2: dopo il login di Ateneo la pagina d'arrivo torna all'app con la richiesta di sola lettura", async () => {
+  const fresh = () => new Map([
+    ["statale-open-dopo-login", JSON.stringify({ req: STANDING, at: Date.now() })],
+    ["statale-open-accesso", JSON.stringify({ at: Date.now() })]
+  ]);
+  for (const landing of ["/", "/my/", "/my/courses.php"]) {
+    const gm = fresh();
+    const r = await runUserscript({ href: ORIGIN + landing, html: LOGGED, gm });
+    assert.deepEqual(r.replaced, [landing + "#statale-open=" + STANDING], landing);
+    assert.equal(r.appended.length, 1);
+    assert.equal(r.appended[0].src, APP_BASE + "ponte/ponte-1.js");
+    assert.equal(r.appended[0].integrity, C.PONTE.sri);
+    assert.deepEqual([...gm.keys()], ["statale-open-dopo-login"], "annotazione usata una volta sola; la richiesta resta per il prossimo login");
+    const again = await runUserscript({ href: ORIGIN + landing, html: LOGGED, gm });
+    assert.equal(again.appended.length, 0, "senza un nuovo login non riparte");
+  }
+  // Un link aperto prima del login (un'attività): si resta lì; l'annotazione è consumata, la richiesta resta.
+  const gm = fresh();
+  const deep = await runUserscript({ href: ORIGIN + "/mod/assign/view.php?id=555", html: LOGGED, gm });
+  assert.equal(deep.appended.length + deep.replaced.length + deep.assigned.length, 0);
+  assert.equal(gm.has("statale-open-accesso"), false);
+  assert.equal(gm.has("statale-open-dopo-login"), true);
+  const later = await runUserscript({ href: ORIGIN + "/my/", html: LOGGED, gm });
+  assert.equal(later.appended.length, 0, "più tardi la Dashboard non torna all'app");
+});
+
+test("script 2: senza login di Ateneo recente, senza richiesta o da ospite non succede nulla", async () => {
+  const nothing = (r) => r.appended.length === 0 && r.assigned.length === 0 && r.replaced.length === 0;
+  const standingOnly = new Map([["statale-open-dopo-login", JSON.stringify({ req: STANDING, at: Date.now() })]]);
+  assert.ok(nothing(await runUserscript({ href: ORIGIN + "/my/", html: LOGGED, gm: standingOnly })), "Dashboard aperta senza login: niente");
+  const oldLogin = new Map([["statale-open-dopo-login", JSON.stringify({ req: STANDING, at: Date.now() })], ["statale-open-accesso", JSON.stringify({ at: Date.now() - 11 * 60e3 })]]);
+  assert.ok(nothing(await runUserscript({ href: ORIGIN + "/my/", html: LOGGED, gm: oldLogin })), "login di più di 10 minuti fa");
+  const loginOnly = new Map([["statale-open-accesso", JSON.stringify({ at: Date.now() })]]);
+  assert.ok(nothing(await runUserscript({ href: ORIGIN + "/my/", html: LOGGED, gm: loginOnly })), "ritorno spento nell'app");
+  const guest = new Map([["statale-open-dopo-login", JSON.stringify({ req: STANDING, at: Date.now() })], ["statale-open-accesso", JSON.stringify({ at: Date.now() })]]);
+  assert.ok(nothing(await runUserscript({ href: ORIGIN + "/my/", html: GUEST, gm: guest })), "non ancora entrato");
+  // Una richiesta con modifiche finita nell'archivio non parte mai da sola.
+  const withOps = C.buildRequest({ seq: 1, ops: { "done:5": { k: "done", cm: 5, v: 1, n: 1, at: Date.now() } } }, { ret: "frag" }).text;
+  const tampered = new Map([["statale-open-dopo-login", JSON.stringify({ req: withOps, at: Date.now() })], ["statale-open-accesso", JSON.stringify({ at: Date.now() })]]);
+  assert.ok(nothing(await runUserscript({ href: ORIGIN + "/my/", html: LOGGED, gm: tampered })));
+  // Un link costruito da altri resta ignorato anche con la richiesta per il ritorno presente.
+  const forged = C.buildRequest(C.emptyBox(null), { ret: "frag" }).text;
+  assert.ok(nothing(await runUserscript({ href: ORIGIN + "/my/#statale-open=" + forged, html: LOGGED, gm: fresh2() })));
+  function fresh2() { return new Map([["statale-open-dopo-login", JSON.stringify({ req: STANDING, at: Date.now() })]]); }
+});
+
+test("script 2: la richiesta dell'app in attesa del login ha la precedenza e consuma l'annotazione", async () => {
+  const gm = new Map([
+    ["statale-open-richiesta", JSON.stringify({ req: REQ, at: Date.now(), parked: true })],
+    ["statale-open-dopo-login", JSON.stringify({ req: STANDING, at: Date.now() })],
+    ["statale-open-accesso", JSON.stringify({ at: Date.now() })]
+  ]);
+  const r = await runUserscript({ href: ORIGIN + "/my/", html: LOGGED, gm });
+  assert.deepEqual(r.replaced, ["/my/#statale-open=" + REQ]);
+  assert.equal(r.appended.length, 1);
+  assert.deepEqual([...gm.keys()], ["statale-open-dopo-login"], "resta solo la richiesta per il prossimo login");
+});
+
+test("script 1: resta pubblicato identico e funziona come prima (chi non ha aggiornato)", async () => {
+  const v1 = fs.readFileSync(path.join(DOCS, "ponte/statale-open-1.user.js"), "utf8");
+  const app = await runUserscript({ href: APP_BASE, source: v1 });
+  assert.equal(app.attrs["data-statale-open-auto"], "1");
+  assert.equal(await app.arm(REQ), true);
+  const r = await runUserscript({ href: ORIGIN + "/#statale-open=" + REQ, html: LOGGED, gm: app.gm, source: v1 });
+  assert.equal(r.appended.length, 1);
 });

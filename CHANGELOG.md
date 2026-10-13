@@ -30,7 +30,13 @@ e la descrizione dell'aggiornamento in AltStore e SideStore.
   dati di esempio, copia offline, scadenze nel Calendario (`.ics` con avvisi 24 h e 2 h prima), installabile sulla schermata Home.
 - Test dell'app web: logica condivisa (`node --test`) e prova completa nel browser con il portale simulato, anche nella CI.
 
+- **Ritorno all'app dopo il login** (script `ponte/statale-open-2.user.js`): entrando dalla pagina di login di Ateneo, dopo «Entra»
+  lo script legge i dati e riapre l'app web da solo, con una richiesta di sola lettura che l'app gli lascia in anticipo
+  (*Altro → Ponte con il portale → Torna all'app dopo il login sul portale*, acceso di serie). La versione 1 resta pubblicata;
+  l'app invita ad aggiornarla.
+
 ### Modificato
+- App web: si apre subito con la copia salvata quando la rete non risponde entro 2,5 secondi, e la aggiorna per l'apertura successiva.
 - App web: **Accedi** apre la pagina ufficiale del portale e, con il ponte automatico, riporta all'app con i dati (la password la scrivi
   solo sul portale); la prima volta guida l'installazione in quattro passaggi, con il preferito come riserva, e si accorge da sola
   quando lo script è installato. Email e password e chiave dell'app compaiono solo se il portale ha i servizi per app attivi

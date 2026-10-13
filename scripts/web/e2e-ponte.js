@@ -16,6 +16,7 @@ const SHOTS = process.argv[2] || null;
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".webmanifest": "application/manifest+json" };
 const BOOKMARK = decodeURIComponent(C.bookmarklet(APP).slice("javascript:".length));
 const USERSCRIPT = fs.readFileSync(path.join(DOCS, C.PONTE.userscript), "utf8");
+const USERSCRIPT_V1 = fs.readFileSync(path.join(DOCS, "ponte/statale-open-1.user.js"), "utf8");
 
 let portal = createPortal();
 let tamper = false;
@@ -357,8 +358,9 @@ async function setup(context) {
   // A fine caricamento (@run-at document-end), con GM.getValue/setValue/deleteValue condivisi tra le pagine.
   portal = createPortal();
   const gm = new Map();
+  const REQ_KEY = "statale-open-richiesta", LOGIN_KEY = "statale-open-accesso";
   // onlyApp: l'estensione consentita solo sulla pagina dell'app e non sul portale (permesso per sito in Safari).
-  async function autoPage(onlyApp) {
+  async function autoPage(onlyApp, source) {
     const page2 = await newPage(false);
     const context = page2.context();
     await context.exposeBinding("__statale_gm", (source, op, key, value) => {
@@ -370,7 +372,7 @@ async function setup(context) {
     await context.addInitScript({ content: "(function(){" +
       "var GM={getValue:function(k,d){return window.__statale_gm('get',k).then(function(v){return v==null?d:v;});}," +
       "setValue:function(k,v){return window.__statale_gm('set',k,v);},deleteValue:function(k){return window.__statale_gm('del',k);}};" +
-      "var run=function(){" + (onlyApp ? "if(location.hostname!=='leogen02.github.io')return;" : "") + "(function(GM){\n" + USERSCRIPT + "\n})(GM);};" +
+      "var run=function(){" + (onlyApp ? "if(location.hostname!=='leogen02.github.io')return;" : "") + "(function(GM){\n" + (source || USERSCRIPT) + "\n})(GM);};" +
       "if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);else run();})();" });
     return page2;
   }
@@ -389,7 +391,7 @@ async function setup(context) {
     await expectText(auto, "Ciao, Mario");
     await expectText(auto, "Dati aggiornati");
     if (portal.st.logins !== 1) throw new Error("login di Ateneo non avvenuto");
-    if (gm.size) throw new Error("richiesta rimasta nell'archivio dell'estensione");
+    if (gm.has(REQ_KEY) || gm.has(LOGIN_KEY)) throw new Error("richiesta rimasta nell'archivio dell'estensione");
     await auto.click('[data-tab="altro"]');
     await expectText(auto, "attivo ✓");
     if ((await auto.getAttribute('[data-a="switch"][data-key="autoSync"]', "aria-checked")) !== "true") throw new Error("«Aggiorna da solo all'apertura» non acceso");
@@ -416,14 +418,77 @@ async function setup(context) {
     const logins = portal.st.logins;
     await auto.click('[data-a="sync-now"]');
     await auto.waitForURL((u) => u.toString().startsWith(SSO), { timeout: 10000 });
-    if (gm.size !== 1) throw new Error("richiesta non tenuta durante il login");
+    if (!gm.has(REQ_KEY)) throw new Error("richiesta non tenuta durante il login");
     await auto.click("#sso-login");
     await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 15000 });
     await expectText(auto, "Dati aggiornati");
     if (portal.st.logins !== logins + 1) throw new Error("login non avvenuto");
-    if (gm.size) throw new Error("richiesta rimasta nell'archivio");
+    if (gm.has(REQ_KEY) || gm.has(LOGIN_KEY)) throw new Error("richiesta rimasta nell'archivio");
     const t = await auto.locator("#device").innerText();
     if (/non è tornato/.test(t)) throw new Error("avviso di giro non concluso dopo un giro riuscito");
+  });
+
+  await check(auto, "login direttamente dalla pagina di Ateneo: dopo «Entra» torna all'app con i dati, senza conferme", async () => {
+    if (!gm.has("statale-open-dopo-login")) throw new Error("l'app non ha lasciato la richiesta per il ritorno dopo il login");
+    portal.st.loggedIn = false;
+    const logins = portal.st.logins, posts = portalPosts();
+    await auto.goto(SSO + "?url=" + encodeURIComponent(ORIGIN + "/login/index.php"));
+    await auto.click("#sso-login");
+    await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 15000 });
+    await expectText(auto, "Dati aggiornati");
+    if (portal.st.logins !== logins + 1 || portalPosts() <= posts) throw new Error("login o lettura non avvenuti");
+    const t = await auto.locator("#device").innerText();
+    if (/Dati dal portale|Importare i dati/.test(t)) throw new Error("chiesta una conferma per i dati del ritorno dopo il login");
+    if (gm.has("statale-open-accesso")) throw new Error("annotazione del login rimasta");
+    await auto.waitForTimeout(300);
+    if (!gm.has("statale-open-dopo-login")) throw new Error("nessuna richiesta nuova per il prossimo login");
+    await shot(auto, "p8-ritorno-dopo-login");
+  });
+
+  await check(auto, "dopo il login, un'attività aperta resta aperta (niente ritorno all'app)", async () => {
+    portal.st.loggedIn = false;
+    await auto.goto(SSO + "?url=" + encodeURIComponent(ORIGIN + "/login/index.php"));
+    portal.st.loggedIn = true;
+    const posts = portalPosts();
+    await auto.goto(ORIGIN + "/mod/assign/view.php?id=555");
+    await auto.waitForTimeout(1200);
+    if (!auto.url().startsWith(ORIGIN + "/mod/assign/") || portalPosts() !== posts) throw new Error("attività dirottata verso l'app");
+    await auto.goto(ORIGIN + "/my/");
+    await auto.waitForTimeout(1200);
+    if (!auto.url().startsWith(ORIGIN + "/my/") || portalPosts() !== posts) throw new Error("la Dashboard aperta più tardi è tornata all'app");
+    await auto.goto(APP);
+    await expectText(auto, "Aggiorna dal portale");
+  });
+
+  await check(auto, "«Torna all'app dopo il login sul portale» spento: dopo il login si resta sul portale", async () => {
+    await auto.click('[data-tab="altro"]');
+    await auto.click('[data-a="switch"][data-key="loginReturn"]');
+    await auto.waitForTimeout(300);
+    if (gm.has("statale-open-dopo-login")) throw new Error("richiesta per il ritorno rimasta nello script");
+    portal.st.loggedIn = false;
+    const posts = portalPosts();
+    await auto.goto(SSO + "?url=" + encodeURIComponent(ORIGIN + "/login/index.php"));
+    await auto.click("#sso-login");
+    await auto.waitForURL((u) => u.toString().startsWith(ORIGIN + "/my/"), { timeout: 10000 });
+    await auto.waitForTimeout(1200);
+    if (!auto.url().startsWith(ORIGIN + "/my/") || portalPosts() !== posts) throw new Error("tornato all'app con il ritorno spento");
+    await auto.goto(APP);
+    await auto.click('[data-tab="altro"]');
+    await auto.click('[data-a="switch"][data-key="loginReturn"]');
+    await auto.waitForTimeout(300);
+    if (!gm.has("statale-open-dopo-login")) throw new Error("riacceso, ma nessuna richiesta");
+    await auto.click('[data-tab="home"]');
+  });
+
+  await check(auto, "Dashboard aperta dall'app: dopo il login lì si resta; tornando all'app il ritorno si riattiva", async () => {
+    if (!gm.has("statale-open-dopo-login")) throw new Error("richiesta per il ritorno assente prima del test");
+    const [popup] = await Promise.all([auto.waitForEvent("popup"), auto.click('[data-a="open"][data-url="' + ORIGIN + '/my/"]')]);
+    await auto.waitForTimeout(300);
+    if (gm.has("statale-open-dopo-login")) throw new Error("ritorno ancora attivo mentre è aperta la Dashboard");
+    await popup.close().catch(() => {});
+    await auto.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await auto.waitForTimeout(300);
+    if (!gm.has("statale-open-dopo-login")) throw new Error("ritorno non riattivato tornando all'app");
   });
 
   await check(auto, "modifiche in attesa: unica conferma sul portale, poi ritorno automatico", async () => {
@@ -449,11 +514,11 @@ async function setup(context) {
     const injected = await auto.evaluate(() => !!document.querySelector('script[src*="ponte-1.js"]') || !!window.__statalePonte);
     if (injected) throw new Error("ponte avviato da un link non chiesto dall'app");
     if (portalPosts() !== posts) throw new Error("richieste al portale da un link esterno");
-    if (gm.size) throw new Error("un link esterno ha registrato una richiesta");
+    if (gm.has(REQ_KEY)) throw new Error("un link esterno ha registrato una richiesta");
     portal.st.loggedIn = false;
     await auto.goto(ORIGIN + "/#statale-open=" + forged);
     await auto.waitForTimeout(700);
-    if (auto.url().startsWith(SSO) || gm.size) throw new Error("un link esterno ha avviato il giro del login");
+    if (auto.url().startsWith(SSO) || gm.has(REQ_KEY)) throw new Error("un link esterno ha avviato il giro del login");
     portal.st.loggedIn = true;
     await auto.goto(APP);
   });
@@ -540,6 +605,20 @@ async function setup(context) {
     await auto.click('[data-a="switch"][data-key="autoReturn"]');
   });
 
+  portal = createPortal();
+  const old = await autoPage(false, USERSCRIPT_V1);
+  await old.goto(APP);
+  await check(old, "script 1 ancora installato: funziona e l'app invita ad aggiornarlo", async () => {
+    await old.click('[data-a="login-portal"]');
+    await old.waitForURL((u) => u.toString().startsWith(APP + "#") || u.toString() === APP, { timeout: 15000 }).catch(() => {});
+    await expectText(old, "Dati aggiornati", 15000);
+    await expectText(old, "Aggiorna lo script del ponte automatico");
+    await old.click('[data-a="ponte-setup"]');
+    await expectText(old, "Aggiorna lo script (versione " + C.PONTE.userscriptVersion + ")");
+    if ((await old.getAttribute('[data-a="script-opened"]', "href")) !== APP + C.PONTE.userscript) throw new Error("link allo script nuovo sbagliato");
+    gm.clear();
+  });
+
   const half = await autoPage(true);
   await half.goto(APP);
   await check(half, "estensione non consentita sul portale: «Accedi» non torna, riaprendo l'app spiegazione, preferito e «Incolla»", async () => {
@@ -564,7 +643,7 @@ async function setup(context) {
     const t = await page.locator("#device").innerText();
     if (/attivo ✓/.test(t)) throw new Error("ponte automatico segnato come attivo senza estensione");
     const [download] = await Promise.all([page.waitForEvent("download"), page.click('[data-a="userscript-download"]')]);
-    if (download.suggestedFilename() !== "statale-open-1.user.js") throw new Error("nome del file: " + download.suggestedFilename());
+    if (download.suggestedFilename() !== C.PONTE.userscript.split("/").pop()) throw new Error("nome del file: " + download.suggestedFilename());
     const text = fs.readFileSync(await download.path(), "utf8");
     if (text !== USERSCRIPT) throw new Error("il file scaricato non è lo script pubblicato");
   });

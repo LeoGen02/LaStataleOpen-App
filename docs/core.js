@@ -180,12 +180,15 @@
     min: 1,
     file: "ponte/ponte-1.js",
     // Ponte automatico: script per l'estensione Userscripts di Safari, che avvia lo stesso ponte da solo.
-    userscript: "ponte/statale-open-1.user.js",
+    userscript: "ponte/statale-open-2.user.js",
+    // Versione dello script che l'app consiglia: la 2 riporta all'app anche dopo il login dalla pagina di Ateneo.
+    userscriptVersion: 2,
     sri: "sha384-WuK1i08q5ugibinF49Tb4mka8bTimQM3l76f9nkUugF8cjVs49zNYCbQDRx0+UN6",
     // Impronte dei file pubblicati: non cambiano mai (i preferiti già installati le controllano).
     known: {
       "ponte/ponte-1.js": "sha384-WuK1i08q5ugibinF49Tb4mka8bTimQM3l76f9nkUugF8cjVs49zNYCbQDRx0+UN6",
-      "ponte/statale-open-1.user.js": "sha384-jsohAMyb6FdOJpwHi3wiXRr+Zfavm3Yl8mb101rJb8fiB/0tzW8JHptrI+/QIJS8"
+      "ponte/statale-open-1.user.js": "sha384-jsohAMyb6FdOJpwHi3wiXRr+Zfavm3Yl8mb101rJb8fiB/0tzW8JHptrI+/QIJS8",
+      "ponte/statale-open-2.user.js": "sha384-p5OXyxmqU2Zxxl9g+prO/p3n2ntdmZ0tbQcisbaWIlhPjvAwbduGus3mmr4DR4JM"
     },
     fragmentCap: 60000,
     maxEnvelope: 1500000,
