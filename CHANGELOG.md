@@ -35,7 +35,13 @@ e la descrizione dell'aggiornamento in AltStore e SideStore.
   (*Altro → Ponte con il portale → Torna all'app dopo il login sul portale*, acceso di serie). La versione 1 resta pubblicata;
   l'app invita ad aggiornarla.
 
+- **Spunta come completato** sotto ogni attività del corso, come sul portale (sparisce per le attività a completamento automatico).
+- **Invio automatico delle modifiche** (script `ponte/statale-open-3.user.js`): pochi secondi dopo una modifica, quando non stai toccando
+  nulla, l'app va al portale, applica le modifiche già confermate nell'app senza chiederlo di nuovo, rilegge i dati e torna alla stessa
+  schermata (*Altro → Ponte con il portale → Invia subito le modifiche al portale*, acceso di serie). Le versioni 1 e 2 restano pubblicate.
+
 ### Modificato
+- App web: dopo un giro sul portale si torna alla stessa schermata (scheda, pagina e posizione).
 - App web: si apre subito con la copia salvata quando la rete non risponde entro 2,5 secondi, e la aggiorna per l'apertura successiva.
 - App web: **Accedi** apre la pagina ufficiale del portale e, con il ponte automatico, riporta all'app con i dati (la password la scrivi
   solo sul portale); la prima volta guida l'installazione in quattro passaggi, con il preferito come riserva, e si accorge da sola

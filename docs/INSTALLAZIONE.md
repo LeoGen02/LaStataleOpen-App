@@ -29,23 +29,30 @@ Nell'app tocca **Accedi**: la prima volta compaiono quattro passaggi, ognuno con
    nella barra degli indirizzi (aA) → **Userscripts** (se Safari chiede il permesso, consenti sempre). In alto nella finestra
    di Userscripts compare **Tap to install**: toccalo, poi **Install** (la finestra dell'estensione è in inglese).
    Se *Userscripts* non è nel menu, tocca **Gestisci estensioni** e attivala. Se *Tap to install* non compare, nell'app tocca
-   **Scarica il file**, poi in *File → Download* tieni premuto `statale-open-2.user.js` → **Sposta** → *Sul mio iPhone → Userscripts*
+   **Scarica il file**, poi in *File → Download* tieni premuto `statale-open-3.user.js` → **Sposta** → *Sul mio iPhone → Userscripts*
    e apri una volta il menu di Userscripts in Safari.
 4. Torna alla scheda dell'app: la pagina si ricarica da sola (oppure tocca **Ho fatto: controlla**) e compare **Ponte automatico installato**
    con il pulsante **Accedi**. Toccalo, entra con il login di Ateneo e l'app si riapre con i tuoi dati; al primo giro riuscito il ponte
    diventa **attivo**. Se resti sul portale senza tornare, manca il permesso sul portale (passaggio 2).
    Quando la sessione del portale scade, «Aggiorna dal portale» riapre il login di Ateneo: subito dopo il ponte riparte e torna all'app.
 
-- **Modifiche da inviare** (avvisi letti, attività completate): il pannello del ponte chiede **Applica e aggiorna**, l'unico tocco in più.
+- **Spunta come completato**: sotto ogni attività del corso c'è lo stesso pulsante del portale; toccalo di nuovo per tornare a «da fare».
+  Se il portale non lascia spuntare un'attività (completamento automatico), l'app lo dice e il pulsante sparisce.
+- **Invio automatico delle modifiche** (*Altro → Ponte con il portale → Invia subito le modifiche al portale*, acceso di serie, script versione 3):
+  pochi secondi dopo che spunti un'attività o leggi un avviso, quando non stai toccando nulla, l'app va al portale, applica le modifiche
+  senza chiederlo di nuovo, rilegge i dati e torna alla stessa schermata (pagina e posizione). Vale solo per il tuo account: se sul portale
+  è entrato qualcun altro, il pannello chiede la conferma. Spento (o con lo script 1 o 2), le modifiche partono con
+  «Aggiorna dal portale» e il pannello del ponte chiede **Applica e aggiorna**.
 - **Ritorno automatico in Safari** (*Altro*) deve restare acceso: spento, i dati tornano dagli appunti anche con il ponte automatico.
 - **Ritorno dopo il login**: *Altro → Ponte con il portale → Torna all'app dopo il login sul portale* (acceso di serie). Quando entri dalla
   pagina di login di Ateneo e arrivi alla Dashboard (o alla pagina iniziale, o a *I miei corsi*), lo script legge i dati e riapre l'app.
   Se dopo il login arrivi a un'altra pagina (per esempio un'attività aperta dall'app) resti lì. È solo lettura: le modifiche da inviare
   partono soltanto con «Aggiorna dal portale». Spegnilo se vuoi entrare nel portale senza tornare all'app.
-- **Hai già lo script versione 1?** L'app lo segnala in Home (*Aggiorna lo script del ponte automatico*): tocca **Apri lo script nuovo**,
+- **Hai già lo script versione 1 o 2?** L'app lo segnala in Home (*Aggiorna lo script del ponte automatico*): tocca **Apri lo script nuovo**,
   poi sulla pagina dello script menu della pagina → **Userscripts**. Il riquadro verde dice «Userscript Installed» (il nome è lo stesso):
   tocca **Tap to re-install** → **Install** e la versione nuova prende il posto della vecchia. Non scaricare il file per aggiornare: si aggiungerebbe
-  una seconda copia. La versione 1 continua a funzionare, ma non riporta all'app dopo il login fatto dalla pagina di Ateneo.
+  una seconda copia. Le versioni vecchie continuano a funzionare, ma non inviano da sole le modifiche (e la 1 non riporta all'app dopo
+  il login fatto dalla pagina di Ateneo).
 - *Altro → Ponte con il portale → Aggiorna da solo all'apertura* (acceso di serie) aggiorna quando apri l'app con dati più vecchi di un'ora.
   Se un giro non torna, non riprova da solo finché un aggiornamento non riesce. Puoi spegnerlo dallo stesso interruttore.
 - **Icona sulla schermata Home**: in Safari *Condividi → Aggiungi alla schermata Home* e **spegni «Apri come app web»** (iOS 26).
@@ -77,7 +84,7 @@ Sul computer basta trascinare il pulsante **★ Statale Open** della schermata d
 - Se il login di Ateneo ti chiede di accedere, dopo l'accesso tocca di nuovo il preferito: i dati arrivano lo stesso.
   Se avevi modifiche in attesa, l'app lo dice e le rimanda al prossimo aggiornamento.
 - **Avvisi letti** e **attività segnate come completate** nell'app restano *da inviare* e arrivano al portale al prossimo aggiornamento,
-  dopo una conferma nel pannello del ponte (*Applica e aggiorna*).
+  dopo una conferma nel pannello del ponte (*Applica e aggiorna*); con il ponte automatico versione 3 partono da sole, senza conferma.
 
 ### Se qualcosa non va
 

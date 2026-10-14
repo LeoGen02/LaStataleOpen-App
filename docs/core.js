@@ -180,15 +180,17 @@
     min: 1,
     file: "ponte/ponte-1.js",
     // Ponte automatico: script per l'estensione Userscripts di Safari, che avvia lo stesso ponte da solo.
-    userscript: "ponte/statale-open-2.user.js",
-    // Versione dello script che l'app consiglia: la 2 riporta all'app anche dopo il login dalla pagina di Ateneo.
-    userscriptVersion: 2,
+    userscript: "ponte/statale-open-3.user.js",
+    // Versione dello script che l'app consiglia: la 2 riporta all'app anche dopo il login dalla pagina di Ateneo,
+    // la 3 applica senza chiedere di nuovo le modifiche già confermate nell'app (invio automatico).
+    userscriptVersion: 3,
     sri: "sha384-WuK1i08q5ugibinF49Tb4mka8bTimQM3l76f9nkUugF8cjVs49zNYCbQDRx0+UN6",
     // Impronte dei file pubblicati: non cambiano mai (i preferiti già installati le controllano).
     known: {
       "ponte/ponte-1.js": "sha384-WuK1i08q5ugibinF49Tb4mka8bTimQM3l76f9nkUugF8cjVs49zNYCbQDRx0+UN6",
       "ponte/statale-open-1.user.js": "sha384-jsohAMyb6FdOJpwHi3wiXRr+Zfavm3Yl8mb101rJb8fiB/0tzW8JHptrI+/QIJS8",
-      "ponte/statale-open-2.user.js": "sha384-p5OXyxmqU2Zxxl9g+prO/p3n2ntdmZ0tbQcisbaWIlhPjvAwbduGus3mmr4DR4JM"
+      "ponte/statale-open-2.user.js": "sha384-p5OXyxmqU2Zxxl9g+prO/p3n2ntdmZ0tbQcisbaWIlhPjvAwbduGus3mmr4DR4JM",
+      "ponte/statale-open-3.user.js": "sha384-vLxxYT2Htb17zkuXgJqdMx66I71GMvGNIr2YKeVXuNQm1SAp9Pe9vBjTUcWSIpdL"
     },
     fragmentCap: 60000,
     maxEnvelope: 1500000,
@@ -200,7 +202,10 @@
     treeTTL: 14 * D,
     opTTL: 30 * D,
     autoTTL: 10 * 60e3,
-    autoAfter: H
+    autoAfter: H,
+    // Invio automatico delle modifiche: dopo 8 secondi senza nuove modifiche, al più 45 secondi dalla prima.
+    sendIdle: 8e3,
+    sendMax: 45e3
   };
 
   // Preferito di Safari che carica il ponte con la sua impronta. Solo caratteri ASCII visibili: gli spazi e le lettere
@@ -509,6 +514,9 @@
       return op.k === "read" ? { k: "read", id: op.id, n: op.n } : { k: "done", cm: op.cm, v: op.v === 1 ? 1 : 0, n: op.n };
     }) };
     if (opts.tree != null) req.tree = opts.tree;
+    // Modifiche già confermate nell'app (invio automatico), per l'account dei dati: il ponte ignora questi campi, lo script 3
+    // conferma da solo il pannello solo se sul portale è entrato proprio quell'account.
+    if (opts.confirmed && req.ops.length && typeof opts.user === "number" && opts.user > 1) { req.ok = 1; req.u = opts.user; }
     var text = "SOQ1." + b64urlEncode(new TextEncoder().encode(JSON.stringify(req)));
     return {
       text: text,
@@ -542,7 +550,7 @@
     Object.keys(box.ops).forEach(function (key) {
       var op = box.ops[key], r = matched ? res.ops[key + "#" + op.n] : null;
       if (r && r.s === "ok") { delete box.ops[key]; return; }
-      if (r && r.s === "fail" && r.p) { delete box.ops[key]; failed.push({ key: key, label: op.label || "", m: r.m, at: now }); return; }
+      if (r && r.s === "fail" && r.p) { delete box.ops[key]; failed.push({ key: key, label: op.label || "", m: r.m, at: now, refused: true }); return; }
       if (satisfied(op, snap) === true) { delete box.ops[key]; return; }
       if (r) op.tries = (op.tries || 0) + 1;
       if (now - op.at > PONTE.opTTL) { delete box.ops[key]; failed.push({ key: key, label: op.label || "", m: "Non inviata entro 30 giorni.", at: now }); }

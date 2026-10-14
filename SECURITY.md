@@ -38,8 +38,8 @@ Per verificare a mano: `openssl dgst -sha384 -binary docs/ponte/ponte-1.js | bas
 
 ### Ponte automatico (estensione Userscripts)
 
-`docs/ponte/statale-open-2.user.js` (e la versione 1, ancora pubblicata per chi l'ha installata) fa le veci del tocco sul preferito
-e nient'altro: `@match` solo sul portale, sulla pagina dell'app e (versione 2) sulla pagina di login di Ateneo di La Statale Open,
+`docs/ponte/statale-open-3.user.js` (e le versioni 1 e 2, ancora pubblicate per chi le ha installate) fa le veci del tocco sul preferito
+e nient'altro: `@match` solo sul portale, sulla pagina dell'app e (dalla versione 2) sulla pagina di login di Ateneo di La Statale Open,
 nessuna richiesta di rete, nessun `@require`/`@updateURL` (non si aggiorna da solo), immutabile come il ponte (impronta in `PONTE.known`,
 controllata dalla CI). Sul portale carica `ponte/ponte-1.js` con la stessa `integrity` del preferito solo se l'indirizzo contiene
 una richiesta dell'app; un link costruito ad arte può al massimo far leggere i tuoi dati e consegnarli alla tua app (che chiede conferma
@@ -50,4 +50,11 @@ i campi né toccare il modulo. La prima pagina del portale aperta da entrato nei
 d'arrivo (`/`, `/my/`, `/my/courses.php`) e l'app ha lasciato allo script la sua richiesta di **sola lettura** (lo script rifiuta richieste con
 modifiche o con ritorno diverso dall'indirizzo), parte il ponte e i dati tornano all'app, che li riconosce senza chiedere conferma.
 Un sito esterno che apre la pagina di login e poi il portale può al massimo far leggere i tuoi dati e riportarli alla tua app.
+
+Invio automatico (versione 3): l'app segna con `"ok":1` le richieste le cui modifiche hai già confermato nell'app («Spunta come completato»,
+«Segna come letto» con *Invia subito le modifiche* acceso). Il ponte ignora quel campo; lo script, solo per una richiesta che l'app gli ha
+consegnato sulla propria pagina e che contiene modifiche, `"ok":1` e l'account dei dati (`"u"`, uguale all'utente entrato sul portale),
+tocca nel pannello del ponte (`ponte-1.js`, immutabile) il pulsante principale soltanto se il suo testo è esattamente «Applica e aggiorna».
+Se sul portale è entrato un altro account, il pannello resta da confermare a mano. Un link costruito da altri, anche con `"ok":1`, non viene registrato
+e non avvia nulla; la richiesta per il ritorno dopo il login non contiene mai modifiche. Il preferito chiede sempre la conferma.
 

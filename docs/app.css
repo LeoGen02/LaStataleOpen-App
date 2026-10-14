@@ -251,3 +251,8 @@ select.pick { font: inherit; font-size: 15px; color: var(--accent); background: 
 .file-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
 .sheet .content { padding-top: 4px; }
 .notice .link { font-size: 15px; flex: none; }
+/* «Spunta come completato» sotto le attività, come sul portale */
+.mod-done { align-self: stretch; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 8px; padding: 8px 12px; border-radius: 10px;
+  border: 1px solid var(--sep); background: var(--cell); color: var(--fg); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+.mod-done.on { border-color: var(--green); color: var(--green); }
+.mod-done svg { width: 18px; height: 18px; }

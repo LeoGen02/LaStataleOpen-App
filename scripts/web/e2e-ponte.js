@@ -149,6 +149,8 @@ async function setup(context) {
 
   await check(page, "corso: sezioni, scadenza dell'attività, sottosezione, attività nascosta esclusa", async () => {
     await page.click('[data-tab="corsi"]');
+    // Un secondo tocco sulla scheda torna all'elenco (la scheda ricorda la pagina aperta prima del giro sul portale).
+    await page.click('[data-tab="corsi"]');
     await page.click('.content [data-v="course"][data-id="101"]');
     await expectText(page, "Modulo 1 & introduzione");
     const t = await page.locator("#device").innerText();
@@ -181,10 +183,14 @@ async function setup(context) {
     await page.click('[data-a="notif"][data-id="1"]').catch(() => {});
     await expectText(page, "da inviare");
     await page.click('[data-tab="corsi"]');
+    // Un secondo tocco sulla scheda torna all'elenco (la scheda ricorda la pagina aperta prima del giro sul portale).
+    await page.click('[data-tab="corsi"]');
     await page.click('.content [data-v="course"][data-id="101"]');
-    await page.click('[data-long="556"]', { button: "right" });
-    await page.click('[data-a="ctx-toggle"]');
+    const button = page.locator('[data-a="mod-done"][data-m="556"]');
+    if ((await button.innerText()).trim() !== "Spunta come completato") throw new Error("pulsante: " + (await button.innerText()));
+    await button.click();
     await expectText(page, "da inviare al portale");
+    if (!(await page.locator('[data-a="mod-done"][data-m="556"]').innerText()).includes("Completato")) throw new Error("pulsante non aggiornato");
     await page.click('[data-tab="home"]');
     await expectText(page, "2 modifiche da inviare");
   });
@@ -208,6 +214,8 @@ async function setup(context) {
   });
 
   await check(page, "attività a completamento automatico: rifiutata dal portale, stato ripristinato", async () => {
+    await page.click('[data-tab="corsi"]');
+    // Un secondo tocco sulla scheda torna all'elenco (la scheda ricorda la pagina aperta prima del giro sul portale).
     await page.click('[data-tab="corsi"]');
     await page.click('.content [data-v="course"][data-id="101"]');
     await page.click('[data-long="555"]', { button: "right" });
@@ -491,7 +499,10 @@ async function setup(context) {
     if (!gm.has("statale-open-dopo-login")) throw new Error("ritorno non riattivato tornando all'app");
   });
 
-  await check(auto, "modifiche in attesa: unica conferma sul portale, poi ritorno automatico", async () => {
+  await check(auto, "«Invia subito le modifiche» spento: unica conferma sul portale, poi ritorno automatico", async () => {
+    await auto.click('[data-tab="altro"]');
+    if ((await auto.getAttribute('[data-a="switch"][data-key="autoSend"]', "aria-checked")) !== "true") throw new Error("invio automatico non acceso di serie");
+    await auto.click('[data-a="switch"][data-key="autoSend"]');
     await auto.click('[data-tab="avvisi"]');
     await auto.click('[data-a="mark-read"][data-id="3"]', { force: true }).catch(() => auto.click('[data-a="notif"][data-id="3"]'));
     await auto.click('[data-tab="home"]');
@@ -502,6 +513,49 @@ async function setup(context) {
     await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 15000 });
     await expectText(auto, "Dati aggiornati");
     if (!portal.st.notifications.find((n) => n.id === 3).read) throw new Error("avviso non segnato sul portale");
+    await auto.click('[data-tab="altro"]');
+    await auto.click('[data-a="switch"][data-key="autoSend"]');
+    await auto.click('[data-tab="home"]');
+  });
+
+  await check(auto, "invio automatico: «Spunta come completato» arriva al portale da solo e si torna alla stessa schermata", async () => {
+    await auto.click('[data-tab="corsi"]');
+    // Un secondo tocco sulla scheda torna all'elenco (la scheda ricorda la pagina aperta prima del giro sul portale).
+    await auto.click('[data-tab="corsi"]');
+    await auto.click('.content [data-v="course"][data-id="101"]');
+    await expectText(auto, "Modulo 1 & introduzione");
+    const before = portal.st.completion[556];
+    // Posizione nella pagina del corso: deve restare dopo il giro sul portale.
+    const scrolled = await auto.evaluate(() => { const c = document.querySelector("#content"); c.scrollTop = Math.min(140, c.scrollHeight - c.clientHeight); return c.scrollTop; });
+    await auto.click('[data-a="mod-done"][data-m="556"]');
+    await expectText(auto, "tra pochi secondi");
+    await auto.waitForURL((u) => u.toString().startsWith(ORIGIN + "/"), { timeout: 25000 });
+    await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 15000 });
+    await expectText(auto, "arrivata al portale");
+    await expectText(auto, "Modulo 1 & introduzione");
+    await auto.waitForTimeout(400);
+    const restored = await auto.evaluate(() => document.querySelector("#content").scrollTop);
+    if (scrolled > 20 && Math.abs(restored - scrolled) > 4) throw new Error("posizione persa: " + scrolled + " → " + restored);
+    if (portal.st.completion[556] === before || portal.st.completion[556] !== 1) throw new Error("attività non completata sul portale");
+    if (!(await auto.locator('[data-a="mod-done"][data-m="556"]').innerText()).includes("Completato")) throw new Error("pulsante non aggiornato dopo il ritorno");
+    const box = await auto.evaluate(() => JSON.parse(localStorage.getItem("so.ponte.outbox")));
+    if (Object.keys(box.ops).length) throw new Error("coda non vuota: " + Object.keys(box.ops));
+    // Niente nuovi giri senza nuove modifiche.
+    const posts = portalPosts();
+    await auto.waitForTimeout(10000);
+    if (!auto.url().startsWith(APP) || portalPosts() !== posts) throw new Error("è ripartito senza modifiche nuove");
+    await shot(auto, "p9-invio-automatico");
+  });
+
+  await check(auto, "attività che il portale non lascia spuntare: avviso, stato ripristinato, pulsante tolto", async () => {
+    await auto.click('[data-a="mod-done"][data-m="555"]');
+    await auto.waitForURL((u) => u.toString().startsWith(ORIGIN + "/"), { timeout: 25000 });
+    await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 15000 });
+    await expectText(auto, "Dati aggiornati");
+    if (await auto.locator('[data-a="mod-done"][data-m="555"]').count()) throw new Error("pulsante ancora presente per un completamento automatico");
+    await auto.click('[data-tab="home"]');
+    await expectText(auto, "Modifica non applicata");
+    await auto.click('[data-a="fail-dismiss"]');
   });
 
   await check(auto, "link al portale costruito da altri (anche ripetuto): il ponte non parte", async () => {

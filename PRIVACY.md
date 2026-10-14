@@ -43,6 +43,8 @@ che viaggiano direttamente tra il browser e il portale dell'Ateneo.
   (`M.cfg.userId`, per sapere se sei entrato). Non legge cookie, password o contenuti e non fa richieste di rete.
   Con la versione 2 l'app gli lascia anche una richiesta di sola lettura per il ritorno dopo il login (spegnibile in *Altro*), e sulla pagina
   di login di Ateneo lo script annota soltanto l'ora in cui la apri: non legge i campi, quindi né l'email né la password.
+  Con la versione 3 e *Invia subito le modifiche* acceso, le modifiche che fai nell'app (attività completate, avvisi letti) partono da sole
+  pochi secondi dopo: lo script conferma per te il pannello del ponte, solo per le richieste dell'app.
 
 ## Con chi parla l'app
 

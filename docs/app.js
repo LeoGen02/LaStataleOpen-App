@@ -97,9 +97,9 @@
   var KEYS = {
     session: "so.session", phase: "so.phase", settings: "so.settings", update: "so.update", demo: "so.demo", toggles: "so.demo.toggles",
     ponteSnap: "so.ponte.snap", ponteBox: "so.ponte.outbox", ponteReq: "so.ponte.req", ponteLast: "so.ponte.last", ponteFail: "so.ponte.fail",
-    ponteAuto: "so.ponte.auto", ponteStanding: "so.ponte.standing"
+    ponteAuto: "so.ponte.auto", ponteStanding: "so.ponte.standing", ponteSent: "so.ponte.sent", ponteNoManual: "so.ponte.nomanual"
   };
-  var PONTE_KEYS = [KEYS.ponteSnap, KEYS.ponteBox, KEYS.ponteReq, KEYS.ponteLast, KEYS.ponteFail, KEYS.ponteAuto, KEYS.ponteStanding];
+  var PONTE_KEYS = [KEYS.ponteSnap, KEYS.ponteBox, KEYS.ponteReq, KEYS.ponteLast, KEYS.ponteFail, KEYS.ponteAuto, KEYS.ponteStanding, KEYS.ponteSent, KEYS.ponteNoManual];
   function readJSON(key, fallback) { try { var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; } }
   function writeJSON(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* archivio non disponibile */ } }
   function removeKey(key) { try { localStorage.removeItem(key); } catch (e) { /* archivio non disponibile */ } }
@@ -418,6 +418,7 @@
   function queueOp(op, current) {
     var pending = pendingRequest();
     writeBox(C.enqueueOp(readBox(), op, current, pending ? pending.keys : []));
+    scheduleSend();
   }
   function snapModule(courseId, cmid) {
     var c = PB.snap && PB.snap.contents[courseId], found = null;
@@ -444,6 +445,7 @@
         if (!n.r) box = C.enqueueOp(box, { k: "read", id: n.id, label: n.s }, false, pending ? pending.keys : []);
       });
       writeBox(box);
+      scheduleSend();
     },
     categories: async function (parent) {
       var t = PB.snap.tree;
@@ -486,6 +488,7 @@
     // Acceso di serie (chiave nuova: chi aveva il vecchio interruttore spento di serie lo ritrova acceso).
     autoSync: settings.autoOpen !== false,
     loginReturn: settings.loginReturn !== false,
+    autoSend: settings.autoSend !== false,
     email: settings.email || "", emailSaved: false,
     seen: settings.seen || null,
     demoNotifAuth: settings.demoNotifAuth === undefined ? null : settings.demoNotifAuth,
@@ -504,7 +507,7 @@
   }
   resetStacks();
   function saveSettings() {
-    writeJSON(KEYS.settings, { program: S.program, reminders: S.reminders, autoReturn: S.autoReturn, autoOpen: S.autoSync, loginReturn: S.loginReturn, email: S.email, seen: S.seen, demoNotifAuth: S.demoNotifAuth });
+    writeJSON(KEYS.settings, { program: S.program, reminders: S.reminders, autoReturn: S.autoReturn, autoOpen: S.autoSync, loginReturn: S.loginReturn, autoSend: S.autoSend, email: S.email, seen: S.seen, demoNotifAuth: S.demoNotifAuth });
   }
   function saveToggles() { writeJSON(KEYS.toggles, S.demo); }
   function saveUpdate() { writeJSON(KEYS.update, { available: S.update.available, lastCheck: S.update.lastCheck }); }
@@ -528,6 +531,7 @@
     S.ponte.incoming = false;
     armStanding();
     if (!incoming) maybeAutoSync();
+    scheduleSend();
   }
   async function restoreSession() {
     var saved = readJSON(KEYS.phase, null);
@@ -536,7 +540,7 @@
     if (saved.phase === "web") { S.phase = "web"; render(); return; }
     if (S.mode === "bridge") {
       if (saved.phase === "ponte" || !loadSnap()) { S.phase = "ponte"; S.ponte.from = loadSnap() ? "app" : "login"; S.ponte.bookmark = !!saved.bm; render(); return; }
-      applyBridge(); S.phase = "app"; resetStacks(); render();
+      applyBridge(); S.phase = "app"; resetStacks(); restoreView(); render();
       return;
     }
     if (S.mode === "demo") {
@@ -631,6 +635,7 @@
   }
   function logout() {
     if (S.mode === "bridge") PONTE_KEYS.forEach(removeKey);
+    noManual = null;
     PB.snap = null; S.ponte.notes = []; S.sync = null;
     clearSession();
     S.mode = null; S.siteInfo = null; S.notice = null; S.alert = null;
@@ -685,12 +690,12 @@
     if (n.read) return;
     try { await api().markRead(n.id); } catch (e) { /* come l'app: si riprova al prossimo aggiornamento */ }
     await refreshNotifications(); render();
-    if (S.mode === "bridge") toast("Segnato come letto: arriva al portale al prossimo aggiornamento");
+    if (S.mode === "bridge") toast("Segnato come letto: " + sendHint(true).replace(/^la /, "lo "));
   }
   async function markAllRead() {
     try { await api().markAllRead(); } catch (e) { /* come l'app */ }
     await refreshNotifications(); render();
-    if (S.mode === "bridge") toast("Avvisi segnati come letti: arrivano al portale al prossimo aggiornamento");
+    if (S.mode === "bridge") toast("Avvisi segnati come letti: " + sendHint(false));
   }
   function setBadge(count) {
     if (EMBEDDED || !("setAppBadge" in navigator)) return;
@@ -714,6 +719,11 @@
   function ensureContents(courseId) {
     var current = S.contents[courseId];
     if (current && current.status !== "reload") return current;
+    // Con il ponte i contenuti sono già qui (dati letti dal portale + modifiche in attesa): subito, senza attesa né rotellina.
+    if (S.mode === "bridge" && (PB.snap || loadSnap())) {
+      var sections = C.sectionsFor(PB.snap, courseId, readBox());
+      if (sections) return (S.contents[courseId] = { status: "ok", sections: sections });
+    }
     S.contents[courseId] = { status: "loading", sections: current && current.sections };
     api().contents(courseId).then(function (sections) {
       S.contents[courseId] = { status: "ok", sections: sections };
@@ -735,7 +745,7 @@
   async function toggleCompletion(mo) {
     try {
       await api().setCompletion(mo.id, !mo.done, mo);
-      if (S.mode === "bridge") toast((mo.done ? "Attività segnata come da fare" : "Attività segnata come completata") + ": arriva al portale al prossimo aggiornamento");
+      if (S.mode === "bridge") toast((mo.done ? "Attività segnata come da fare" : "Attività segnata come completata") + ": " + sendHint(true));
       S.contents[mo.courseId] = Object.assign({}, S.contents[mo.courseId], { status: "reload" });
       ensureContents(mo.courseId);
     } catch (e) {
@@ -824,7 +834,7 @@
   function autoVersion() {
     if (EMBEDDED || isStandalone()) return 0;
     var v = document.documentElement.getAttribute("data-statale-open-auto");
-    return v === "1" ? 1 : v === "2" ? 2 : 0;
+    return v === "1" ? 1 : v === "2" ? 2 : v === "3" ? 3 : 0;
   }
   function autoBridge() { return autoVersion() > 0; }
   // Script della versione 1: funziona, ma non riporta all'app dopo il login fatto dalla pagina di Ateneo.
@@ -921,7 +931,9 @@
   function startSync(opts) {
     var auto = !!(opts && opts.auto), standalone = isStandalone();
     // Con «Ritorno automatico» spento i dati tornano dagli appunti anche con il ponte automatico (niente dati nell'indirizzo).
-    var r = C.buildRequest(readBox(), { ret: standalone || !S.autoReturn ? "clip" : "frag", tree: needsTree() ? S.program.id : null });
+    // Con «Invia subito le modifiche» e lo script 3 le modifiche sono già confermate qui: il pannello non le richiede.
+    var r = C.buildRequest(readBox(), { ret: standalone || !S.autoReturn ? "clip" : "frag", tree: needsTree() ? S.program.id : null,
+      confirmed: auto && sendsConfirmed(), user: PB.snap && PB.snap.user ? PB.snap.user.id : null });
     r.pending.auto = auto;
     var url = C.requestURL(r.text, auto ? "auto" : "bookmark");
     if (auto) {
@@ -932,6 +944,8 @@
       armAuto(r.text).then(function (ok) {
         if (ok) {
           writeJSON(KEYS.ponteReq, r.pending);
+          if (r.pending.keys.length) writeJSON(KEYS.ponteSent, { at: Date.now() });
+          saveView();
           try { location.assign(url); return; } catch (e) { /* navigazione rifiutata: si riprova a mano */ }
         }
         S.ponte.starting = false;
@@ -943,7 +957,7 @@
       return;
     }
     writeJSON(KEYS.ponteReq, r.pending);
-    if (!standalone) { location.assign(url); return; }
+    if (!standalone) { saveView(); location.assign(url); return; }
     // Dalla schermata Home il preferito di Safari non è raggiungibile: l'indirizzo passa dagli appunti.
     copyTextOk(url).then(function (ok) {
       if (!S.sync) S.sync = {};
@@ -951,6 +965,86 @@
       S.sync.url = ok ? null : url;
       render();
     });
+  }
+  // Invio automatico delle modifiche (script 3): poco dopo l'ultima modifica, quando non stai toccando nulla, l'app va
+  // al portale, applica le modifiche già confermate qui, rilegge i dati e torna alla stessa schermata.
+  var sendTimer = null, sendFirst = 0, lastTouch = 0;
+  // Modifiche confermate qui (niente seconda conferma sul portale): interruttore visibile e acceso, script 3.
+  function sendsConfirmed() { return S.autoSend && S.autoReturn && autoVersion() >= 3; }
+  function canAutoSend() { return sendsConfirmed() && S.mode === "bridge" && !!(PB.snap || loadSnap()); }
+  // L'ultimo giro automatico è partito e non è tornato (portale senza risposta, login lasciato a metà): finché un
+  // aggiornamento non riesce, niente nuovi giri da soli. Quello appena partito (meno di 10 minuti) può ancora tornare.
+  function autoSendBlocked() {
+    var p = readJSON(KEYS.ponteReq, null), last = readJSON(KEYS.ponteLast, null);
+    return !!(p && p.auto && (!last || last.at < p.at));
+  }
+  // Messaggio dopo una modifica: quando parte davvero.
+  function sendHint(one) {
+    return canAutoSend() && !autoSendBlocked() ? (one ? "la invio al portale tra pochi secondi" : "li invio al portale tra pochi secondi")
+      : (one ? "arriva al portale al prossimo aggiornamento" : "arrivano al portale al prossimo aggiornamento");
+  }
+  // Modifiche nuove dall'ultimo invio (quelle già inviate e non applicate ripartono con la prossima modifica o a mano).
+  function unsentChanges() {
+    var sent = readJSON(KEYS.ponteSent, null), since = sent && sent.at || 0;
+    return C.pendingOps(readBox()).filter(function (op) { return (op.at || 0) > since; }).length;
+  }
+  function scheduleSend(delay) {
+    if (!canAutoSend() || !unsentChanges()) return;
+    var now = Date.now();
+    if (!sendFirst) sendFirst = now;
+    clearTimeout(sendTimer);
+    sendTimer = setTimeout(trySend, delay != null ? delay : Math.max(0, Math.min(C.PONTE.sendIdle, sendFirst + C.PONTE.sendMax - now)));
+  }
+  function trySend() {
+    sendTimer = null;
+    if (!canAutoSend() || !unsentChanges()) { sendFirst = 0; return; }
+    var active = document.activeElement;
+    var typing = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT");
+    // Mai mentre fai altro: un menu, un avviso, un campo, un tocco di un attimo fa. Si riprova tra poco.
+    if (document.visibilityState !== "visible") { sendFirst = 0; return; } // riparte al ritorno sulla scheda
+    if (S.phase !== "app" || S.alert || S.ctx || S.sync || S.sheet || S.ql || S.menu || typing ||
+        importing || S.ponte.starting || S.ponte.incoming || navigator.onLine === false || Date.now() - lastTouch < 2000) {
+      sendTimer = setTimeout(trySend, 3000);
+      return;
+    }
+    // L'ultimo giro automatico non è tornato: niente nuovi tentativi da soli (in Home c'è l'avviso e «Aggiorna dal portale»).
+    if (autoSendBlocked()) { sendFirst = 0; return; }
+    sendFirst = 0;
+    var n = C.pendingOps(readBox()).length;
+    toast("Invio " + (n === 1 ? "della modifica" : "delle " + n + " modifiche") + " al portale…");
+    startSync({ auto: true });
+  }
+  function touched() { lastTouch = Date.now(); }
+  ["pointerdown", "touchstart", "keydown", "wheel"].forEach(function (type) { document.addEventListener(type, touched, { capture: true, passive: true }); });
+  // Tornando sull'app (o in primo piano) si riparte da capo: mai un giro nell'istante in cui la riguardi.
+  function resumeSend() { touched(); sendFirst = 0; clearTimeout(sendTimer); sendTimer = null; scheduleSend(); }
+  // Schermata da ritrovare dopo il giro sul portale (stessa scheda del browser: sessionStorage).
+  function saveView() {
+    try {
+      var content = device.querySelector("#content");
+      if (content && device.dataset.key) scrollMemory[device.dataset.key] = content.scrollTop;
+      sessionStorage.setItem("so.view", JSON.stringify({ at: Date.now(), tab: S.tab, stacks: S.stacks, scroll: scrollMemory }));
+    } catch (e) { /* archivio della scheda non disponibile */ }
+  }
+  function restoreView() {
+    var v = null;
+    try { v = JSON.parse(sessionStorage.getItem("so.view") || "null"); sessionStorage.removeItem("so.view"); } catch (e) { v = null; }
+    if (!v || !(Date.now() - v.at < 15 * 60e3) || !v.stacks || typeof v.tab !== "string") return;
+    var ok = TABS.every(function (t) {
+      var st = v.stacks[t.key];
+      return Array.isArray(st) && st.length > 0 && st.length < 20 && st.every(function (e) { return e && typeof e.v === "string" && VIEWS[e.v]; });
+    });
+    if (!ok || !v.stacks[v.tab]) return;
+    S.tab = v.tab; S.stacks = v.stacks;
+    scrollMemory = v.scroll && typeof v.scroll === "object" ? v.scroll : {};
+    // La pagina del corso si completa un attimo dopo (contenuti dal ponte): la posizione si rimette quando c'è spazio.
+    pendingScroll = { scroll: Object.assign({}, scrollMemory), at: Date.now() };
+  }
+  var pendingScroll = null;
+  function pendingTop(key) {
+    var p = pendingScroll;
+    if (!p || Date.now() - p.at > 4000 || lastTouch > p.at) { pendingScroll = null; return null; }
+    return typeof p.scroll[key] === "number" ? p.scroll[key] : null;
   }
   async function pasteData() {
     var text = null;
@@ -1026,6 +1120,11 @@
     PB.snap = stored.snap;
     writeBox(rec.box);
     if (rec.failed.length) writeJSON(KEYS.ponteFail, readJSON(KEYS.ponteFail, []).concat(rec.failed).slice(-20));
+    // Attività che il portale non lascia spuntare a mano (completamento automatico): il pulsante non si mostra più.
+    var refused = rec.failed.filter(function (f) { return f.refused && /^done:\d+$/.test(f.key); }).map(function (f) { return Number(f.key.slice(5)); });
+    if (refused.length) { noManual = noManualList().concat(refused).filter(function (v, i, a) { return a.indexOf(v) === i; }).slice(-500); writeJSON(KEYS.ponteNoManual, noManual); }
+    var sentOk = rec.matched && pending && pending.keys ? pending.keys.filter(function (k) { return !rec.box.ops[k.split("#")[0]]; }).length - rec.failed.length : 0;
+    sentOk = Math.max(0, sentOk);
     writeJSON(KEYS.ponteLast, { sid: snap.sid, at: Date.now() });
     if (rec.matched) {
       if (pending && pending.auto) writeJSON(KEYS.ponteAuto, { ok: Date.now() });
@@ -1043,7 +1142,8 @@
     S.sync = null; S.alert = null;
     render();
     var unread = S.data.unread;
-    var text = "Dati aggiornati: " + S.data.courses.length + (S.data.courses.length === 1 ? " corso, " : " corsi, ") +
+    var text = (sentOk > 0 ? (sentOk === 1 ? "Modifica arrivata al portale ✓ " : sentOk + " modifiche arrivate al portale ✓ ") : "") +
+      "Dati aggiornati: " + S.data.courses.length + (S.data.courses.length === 1 ? " corso, " : " corsi, ") +
       S.data.events.length + (S.data.events.length === 1 ? " scadenza, " : " scadenze, ") +
       (unread ? unread + (unread === 1 ? " avviso da leggere" : " avvisi da leggere") : "nessun avviso da leggere");
     // Il nome serve solo al saluto: se il portale non lo concede non è un problema da segnalare.
@@ -1238,6 +1338,15 @@
   };
   // ModuleRow.icon
   var MODICON = { resource: "doc", url: "link", page: "book", book: "book", folder: "folder", quiz: "pencil", assign: "tray", forum: "bubble", scorm: "play", h5pactivity: "play", hvp: "play", lesson: "play", lti: "video", kalvidres: "video", kalvidpres: "video", wiki: "book", glossary: "book" };
+  // Come sul portale: «Spunta come completato» sotto le attività a completamento manuale. Con il ponte non si sa se è
+  // manuale finché il portale non rifiuta una spunta (completamento automatico): da lì il pulsante non compare più.
+  var noManual = null; // letta una volta, non a ogni attività disegnata
+  function noManualList() { if (!noManual) noManual = readJSON(KEYS.ponteNoManual, []); return noManual; }
+  function canMark(mo) {
+    if (!mo.completion) return false;
+    if (S.mode === "bridge") return noManualList().indexOf(mo.id) < 0;
+    return mo.completion === 1;
+  }
   function moduleRow(mo) {
     if (mo.mod === "label") return mo.description ? '<div class="cell"><span class="s">' + esc(mo.description) + "</span></div>" : "";
     var k = KIND[mo.kind] || KIND.other;
@@ -1248,6 +1357,8 @@
       '<span class="cell-main"><span class="t">' + esc(mo.name) + '</span><span class="s">' + k.title + (mo.modplural ? " · " + esc(mo.modplural) : "") + "</span>" +
       (mo.due ? '<span class="s ' + (mo.due < Date.now() ? "" : "orange") + '">🕒 ' + esc(fmtShort.format(mo.due)) + "</span>" : "") +
       (mo.pending ? '<span class="s orange">' + (mo.done ? "Completata" : "Da fare") + " · da inviare al portale</span>" : "") +
+      (canMark(mo) ? '<button class="mod-done' + (mo.done ? " on" : "") + '" data-a="mod-done" data-m="' + mo.id + '" data-c="' + mo.courseId + '" aria-pressed="' + !!mo.done + '">' +
+        (mo.done ? checkFilled() + "Completato" : "Spunta come completato") + "</button>" : "") +
       "</span>" + trailing + "</div>";
   }
   function findModule(courseId, id) {
@@ -1435,7 +1546,10 @@
           "</span></span></div>" +
         '<button class="cell accent-row" data-a="ponte-setup">' + ic("link") + '<span class="t">Istruzioni e preferito di riserva</span></button>' : "") +
       (autoOld() ? '<button class="cell accent-row" data-a="ponte-setup">' + ic("down") + '<span class="cell-main"><span class="t">Aggiorna lo script del ponte automatico</span>' +
-          "<span class=\"s\">Con la versione " + C.PONTE.userscriptVersion + ", dopo il login dalla pagina di Ateneo torni qui da solo con i dati.</span></span>" + ic("chevR", ' class="chev"') + "</button>" : "") +
+          "<span class=\"s\">Con la versione " + C.PONTE.userscriptVersion + " le modifiche (attività completate, avvisi letti) arrivano al portale da sole" +
+          (autoVersion() < 2 ? " e dopo il login dalla pagina di Ateneo torni qui da solo" : "") + ".</span></span>" + ic("chevR", ' class="chev"') + "</button>" : "") +
+      (!stuck && canAutoSend() && autoSendBlocked() && C.pendingOps(readBox()).length ? '<div class="cell notice">' + ic("warn") +
+        "<span>Invio automatico in pausa: l'ultimo giro sul portale non è tornato. Tocca «Aggiorna dal portale» per inviare le modifiche.</span></div>" : "") +
       (!stuck && autoPaused() ? '<div class="cell notice">' + ic("warn") + "<span>Aggiornamento automatico all'apertura in pausa: l'ultimo giro non è tornato con i dati. Tocca «Aggiorna dal portale» per riprovare.</span></div>" : "") +
       (awaitingPaste() ? '<button class="cell accent-row" data-a="sync-paste">' + ic("copy") + '<span class="cell-main"><span class="t">Incolla i dati copiati dal portale</span></span></button>' : "") +
       '<button class="cell accent-row" data-a="sync-now">' + ic("refresh") + '<span class="cell-main"><span class="t">Aggiorna dal portale</span><span class="s' + (age === "fresh" ? "" : " orange") + '">' + esc(sub) + "</span>" +
@@ -1453,6 +1567,7 @@
       labeled("Ponte automatico", autoOld() ? "script " + autoVersion() + " · da aggiornare" : autoBridge() ? (autoVerified() ? "attivo ✓" : "installato · da provare") : isStandalone() ? "solo in Safari" : "non installato") +
       (autoBridge() && S.autoReturn ? switchRow("Aggiorna da solo all'apertura", "autoSync") : "") +
       (autoVersion() >= 2 && S.autoReturn ? switchRow("Torna all'app dopo il login sul portale", "loginReturn") : "") +
+      (autoVersion() >= 3 && S.autoReturn ? switchRow("Invia subito le modifiche al portale", "autoSend") : "") +
       '<button class="cell accent-row" data-a="sync-now">' + ic("refresh") + '<span class="t">Aggiorna dal portale</span></button>' +
       ops.map(function (op) {
         return '<div class="cell"><span class="cell-main"><span class="t">' + esc(opLabel(op)) + '</span><span class="s">Da inviare al portale' +
@@ -1467,6 +1582,7 @@
       "Il ponte legge corsi, scadenze e avvisi solo quando tocchi il preferito «Statale Open» o, con il ponte automatico, quando tocchi «Aggiorna dal portale». " +
       (autoBridge() ? "Con «Aggiorna da solo all'apertura» l'app va al portale e torna quando la apri con dati più vecchi di un'ora. " : "") +
       (autoVersion() >= 2 ? "Con «Torna all'app dopo il login sul portale», quando entri dalla pagina di login di Ateneo e arrivi alla Dashboard lo script torna qui con i dati (solo lettura, nessuna modifica). " : "") +
+      (autoVersion() >= 3 ? "Con «Invia subito le modifiche», pochi secondi dopo che spunti un'attività o leggi un avviso (quando non stai toccando nulla) l'app va al portale, le applica senza chiederlo di nuovo e torna alla stessa schermata. Spento, partono con «Aggiorna dal portale» e una conferma sul portale. " : "") +
       "Il preferito esegue solo il file con impronta " + esc(C.PONTE.sri.slice(0, 19)) + "…: se il file cambiasse, il browser lo rifiuterebbe." +
       (isStandalone() ? "" : " Con il ritorno automatico i dati tornano all'app nell'indirizzo della scheda (Safari può tenerli nella cronologia); spento, passano dagli appunti, anche con il ponte automatico."));
   }
@@ -1516,14 +1632,17 @@
       body = group("Ponte automatico", '<div class="cell"><span class="ic" style="color:var(--green)">' + checkFilled() + '</span><span class="cell-main"><span class="t b">' +
           (verified ? "Ponte automatico attivo" : "Ponte automatico installato") + "</span>" +
           '<span class="s">' + (first ? "Tocca «Accedi»: si apre la pagina ufficiale del portale, se serve accedi (Safari può compilare email e password), e l'app si riapre da sola con i tuoi dati."
-            : "«Aggiorna dal portale» apre il portale, legge i dati e torna qui da solo. Se ci sono modifiche da inviare, il pannello sul portale chiede una conferma.") + "</span></span></div>") +
+            : "«Aggiorna dal portale» apre il portale, legge i dati e torna qui da solo. " + (sendsConfirmed()
+              ? "Le modifiche che fai qui partono da sole, senza conferme sul portale."
+              : "Se ci sono modifiche da inviare, il pannello sul portale chiede una conferma.")) + "</span></span></div>") +
         noticeGroup(S.ponte.note) +
         (stuck ? noticeGroup("L'accesso non è tornato con i dati. Se sei rimasto sulla pagina del portale, lì tocca il pulsante a sinistra dell'indirizzo → Userscripts e consenti sempre l'accesso (meglio su tutti i siti web), poi torna qui e riprova. Intanto puoi usare il preferito qui sotto.") : "") +
         (awaitingPaste() && pendingRequest().ret === "clip" ? '<div class="group"><button class="btn-secondary" data-a="sync-paste">' + ic("copy") + "Incolla i dati copiati dal portale</button></div>" : "") +
         '<div class="group"><button class="btn-primary" data-a="sync-now"' + (S.ponte.starting ? " disabled" : "") + ">" +
           (S.ponte.starting ? spinner() + "Apro il portale…" : ic(first ? "personKey" : "globe") + (first ? "Accedi" : "Aggiorna dal portale")) + "</button></div>" +
         (autoOld() ? group("Aggiorna lo script (versione " + C.PONTE.userscriptVersion + ")",
-          text("Con la nuova versione, quando entri dalla pagina di login di Ateneo torni qui da solo con i dati. Tocca il pulsante qui sotto: si apre il testo dello script. " +
+          text("Con la nuova versione le modifiche che fai qui (attività completate, avvisi letti) arrivano al portale da sole, senza conferme sul portale" +
+            (autoVersion() < 2 ? ", e quando entri dalla pagina di login di Ateneo torni qui da solo con i dati" : "") + ". Tocca il pulsante qui sotto: si apre il testo dello script. " +
             "Lì tocca il pulsante a sinistra dell'indirizzo → <b>Userscripts</b>: il riquadro verde dice «Userscript Installed» (è normale, il nome è lo stesso). " +
             "Tocca <b>Tap to re-install</b> → <b>Install</b>: la versione nuova prende il posto della vecchia. Poi torna a questa scheda.") +
           '<a class="cell accent-row" href="' + esc(appBase() + C.PONTE.userscript) + '" target="_blank" rel="noopener" data-a="script-opened">' + ic("down") + '<span class="t">Apri lo script nuovo</span></a>',
@@ -1848,7 +1967,7 @@
       if (mo) {
         out += '<div class="ctx" data-a="ctx-close"><div class="preview">' + moduleRow(mo).replace('data-a="module"', 'data-a="ctx-noop"').replace(/ data-long="\d+"/, "") + '</div><div class="items" role="menu">' +
           (mo.url ? '<button class="cell" role="menuitem" data-a="ctx-open">Apri pagina dell\'attività' + ic("globe") + "</button>" : "") +
-          (mo.completion === 1 ? '<button class="cell" role="menuitem" data-a="ctx-toggle">' + (mo.done ? "Segna come da fare" + ic("circle") : "Segna come completata" + ic("calcheck")) + "</button>" : "") +
+          (canMark(mo) ? '<button class="cell" role="menuitem" data-a="ctx-toggle">' + (mo.done ? "Segna come da fare" + ic("circle") : "Segna come completata" + ic("calcheck")) + "</button>" : "") +
           "</div></div>";
       }
     }
@@ -1895,7 +2014,7 @@
 
   function render() {
     var content = device.querySelector("#content");
-    if (content && device.dataset.key) scrollMemory[device.dataset.key] = content.scrollTop;
+    if (content && device.dataset.key && pendingTop(device.dataset.key) === null) scrollMemory[device.dataset.key] = content.scrollTop;
     var pageEl = device.querySelector(".page"), pageScroll = pageEl ? pageEl.scrollTop : 0;
     var focused = document.activeElement && device.contains(document.activeElement) ? document.activeElement : null;
     var focusedId = focused && focused.id, caret = null;
@@ -1912,6 +2031,8 @@
     device.dataset.key = key;
     var c2 = device.querySelector("#content");
     if (c2 && scrollMemory[key]) c2.scrollTop = scrollMemory[key];
+    var top = c2 ? pendingTop(key) : null;
+    if (top !== null && c2.scrollHeight - c2.clientHeight >= top) { c2.scrollTop = top; delete pendingScroll.scroll[key]; }
     var p2 = device.querySelector(".page");
     if (p2 && pageScroll) p2.scrollTop = pageScroll;
     if (view && view.ptr && c2) attachPull(c2);
@@ -2087,6 +2208,7 @@
       case "ctx-noop": break;
       case "ctx-open": mo = findModule(S.ctx.courseId, S.ctx.id); S.ctx = null; render(); if (mo) openURL(mo.url, mo.name); break;
       case "ctx-toggle": mo = findModule(S.ctx.courseId, S.ctx.id); S.ctx = null; render(); if (mo) toggleCompletion(mo); break;
+      case "mod-done": mo = findModule(Number(el.dataset.c), Number(el.dataset.m)); if (mo) toggleCompletion(mo); break;
       case "notif":
         var n = S.data.notifications.filter(function (x) { return x.id === Number(el.dataset.id); })[0];
         if (n) { if (n.url) openURL(n.url, n.ctx || "Avviso"); markRead(n); }
@@ -2233,7 +2355,7 @@
     }
     // Con il ponte niente rete: si ridisegna (per l'invito a incollare i dati copiati dal portale).
     if (S.mode === "bridge" || S.phase === "ponte") {
-      if (S.phase === "app" && !S.alert && !S.ctx) { render(); maybeAutoSync(); }
+      if (S.phase === "app" && !S.alert && !S.ctx) { render(); maybeAutoSync(); resumeSend(); }
       else if (S.phase === "ponte" && !S.alert) render();
     }
     else if (S.phase === "app" && (!S.data.lastUpdated || Date.now() - S.data.lastUpdated > 5 * 60e3)) refreshAll();
@@ -2246,11 +2368,13 @@
     S.ponte.starting = false; S.ponte.incoming = false; standingPaused = false;
     document.documentElement.removeAttribute("data-statale-open-standing");
     render();
+    resumeSend();
   });
   // Lo script del ponte automatico arriva a pagina caricata: si ridisegna (un tocco) e, se scelto, si aggiorna da solo.
   function autoDetected() {
     if (S.phase === "app" || S.phase === "ponte" || S.phase === "login") render();
     maybeAutoSync();
+    scheduleSend();
   }
   document.addEventListener("statale-open-auto", autoDetected);
   if (window.MutationObserver) {
@@ -2265,10 +2389,11 @@
   window.addEventListener("storage", function (ev) {
     if (ev.key === KEYS.settings) {
       var st = readJSON(KEYS.settings, {});
-      S.autoReturn = st.autoReturn !== false; S.autoSync = st.autoOpen !== false; S.loginReturn = st.loginReturn !== false;
+      S.autoReturn = st.autoReturn !== false; S.autoSync = st.autoOpen !== false; S.loginReturn = st.loginReturn !== false; S.autoSend = st.autoSend !== false;
       if (!S.alert && !S.ctx && !S.sync) render();
       return;
     }
+    if (ev.key === KEYS.ponteNoManual) noManual = null;
     if (!ev.key || ev.key === KEYS.ponteStanding || ev.key.indexOf("so.ponte.") !== 0 || S.mode !== "bridge" || S.phase !== "app") return;
     if (loadSnap()) { applyBridge(); render(); }
   });

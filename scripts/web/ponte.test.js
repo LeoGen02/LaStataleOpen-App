@@ -380,9 +380,11 @@ const vm = require("node:vm");
 const USERSCRIPT = fs.readFileSync(path.join(DOCS, C.PONTE.userscript), "utf8");
 
 // Esegue lo script come l'estensione: in un ambiente finto con pagina, indirizzo e archivio GM.
-async function runUserscript({ href, html = "", top = true, gm = new Map(), useGM = true, password = false, source = USERSCRIPT }) {
+async function runUserscript({ href, html = "", top = true, gm = new Map(), useGM = true, password = false, source = USERSCRIPT, panel = null }) {
   const url = new URL(href);
-  const appended = [], assigned = [], replaced = [], attrs = {}, events = [], listeners = {};
+  const appended = [], assigned = [], replaced = [], attrs = {}, events = [], listeners = {}, clicks = [];
+  // Pannello del ponte (shadow root aperto) con il pulsante principale: panel è il suo testo.
+  const host = panel === null ? null : { shadowRoot: { querySelector: (sel) => (sel === "button.k.pr" ? { textContent: panel, click: () => clicks.push(panel) } : null) } };
   const scripts = html ? [{ textContent: html }] : [];
   const location = {
     href: url.href, origin: url.origin, protocol: url.protocol, hostname: url.hostname, pathname: url.pathname, search: url.search, hash: url.hash,
@@ -395,6 +397,7 @@ async function runUserscript({ href, html = "", top = true, gm = new Map(), useG
     },
     head: { appendChild: (n) => appended.push(n) },
     querySelectorAll: (sel) => (sel === "script:not([src])" ? scripts : sel === 'input[type="password"]' && password ? [{ type: "password" }] : []),
+    querySelector: (sel) => (sel === '[data-statale-open="ponte"]' ? host : null),
     createElement: (tag) => ({ tag }),
     addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
     dispatchEvent: (e) => { events.push(e.type); (listeners[e.type] || []).forEach((fn) => fn(e)); }
@@ -404,7 +407,7 @@ async function runUserscript({ href, html = "", top = true, gm = new Map(), useG
   const GM = useGM ? { getValue: async (k, d) => (gm.has(k) ? gm.get(k) : d), setValue: async (k, v) => { gm.set(k, v); }, deleteValue: async (k) => { gm.delete(k); } } : undefined;
   const session = new Map();
   const sandbox = {
-    window: Object.assign(window, { top: self, self }), document, location, GM, Date, JSON, Promise, alert: () => {}, atob, TextDecoder,
+    window: Object.assign(window, { top: self, self }), document, location, GM, Date, JSON, Promise, alert: () => {}, atob, TextDecoder, setTimeout,
     CustomEvent: function (type) { this.type = type; },
     history: { state: null, replaceState: (s, t, u) => { replaced.push(u); } },
     sessionStorage: { getItem: (k) => (session.has(k) ? session.get(k) : null), setItem: (k, v) => session.set(k, v), removeItem: (k) => session.delete(k) }
@@ -429,7 +432,9 @@ async function runUserscript({ href, html = "", top = true, gm = new Map(), useG
   }
   // Invio del modulo di login.
   async function submit() { document.dispatchEvent({ type: "submit" }); await settle(); }
-  return { appended, assigned, replaced, attrs, events, gm, session, arm, stand, submit };
+  // Il ponte si è caricato (onload dello script aggiunto alla pagina).
+  async function loaded() { appended.forEach((n) => n.onload && n.onload()); await settle(); }
+  return { appended, assigned, replaced, attrs, events, gm, session, arm, stand, submit, loaded, clicks };
 }
 const LOGGED = 'var M = {}; M.cfg = {"wwwroot":"https:\\/\\/lastataleopen.myariel.unimi.it","sesskey":"abc123","userId":42};';
 const GUEST = 'var M = {}; M.cfg = {"wwwroot":"https:\\/\\/lastataleopen.myariel.unimi.it","sesskey":"abc123","userId":0};';
@@ -449,10 +454,14 @@ test("ponte automatico: metadati, impronta del ponte, nessuna API vietata, file 
   assert.ok(USERSCRIPT.includes('var APP = "' + APP_BASE + '";'));
   assert.ok(USERSCRIPT.includes('var BRIDGE = APP + "' + C.PONTE.file + '";'));
   assert.ok(USERSCRIPT.includes('var INTEGRITY = "' + C.PONTE.sri + '";'));
-  for (const word of ["fetch(", "XMLHttpRequest", "xmlHttpRequest", ".cookie", "localStorage", "innerHTML", "eval(", "Function(", "postMessage", "sendBeacon", "WebSocket", "openInTab", "setClipboard", "window.open", ".value", ".submit(", ".click("]) {
+  for (const word of ["fetch(", "XMLHttpRequest", "xmlHttpRequest", ".cookie", "localStorage", "innerHTML", "eval(", "Function(", "postMessage", "sendBeacon", "WebSocket", "openInTab", "setClipboard", "window.open", ".value", ".submit("]) {
     assert.ok(!USERSCRIPT.includes(word), "lo script contiene " + word);
   }
   assert.equal(C.PONTE.known[C.PONTE.userscript], sri(C.PONTE.userscript), C.PONTE.userscript + " è cambiato: chi l'ha installato terrebbe la versione vecchia. Crea una versione nuova. Impronta attuale: " + sri(C.PONTE.userscript));
+  // Un solo tocco possibile: «Applica e aggiorna» nel pannello del ponte (mai moduli o pulsanti delle pagine).
+  assert.equal((USERSCRIPT.match(/\.click\(/g) || []).length, 1);
+  assert.ok(USERSCRIPT.includes('if (button && button.textContent === "Applica e aggiorna") { button.click(); return; }'));
+  assert.ok(USERSCRIPT.includes('host.shadowRoot.querySelector("button.k.pr")'));
   // Anche i file delle versioni precedenti restano pubblicati e identici.
   for (const file of Object.keys(C.PONTE.known)) assert.equal(sri(file), C.PONTE.known[file], file + " è cambiato");
 });
@@ -475,6 +484,8 @@ test("ponte automatico: parte solo la richiesta registrata dall'app, una volta s
   const r = await runUserscript({ href: ORIGIN + "/#statale-open=" + REQ, html: LOGGED, gm });
   assert.equal(r.appended.length, 1);
   assert.deepEqual(r.appended[0], { tag: "script", src: APP_BASE + "ponte/ponte-1.js", integrity: C.PONTE.sri, crossOrigin: "anonymous", referrerPolicy: "no-referrer", onerror: r.appended[0].onerror });
+  await r.loaded();
+  assert.deepEqual(r.clicks, [], "senza modifiche confermate nell'app non tocca nulla");
   assert.equal(r.assigned.length, 0);
   assert.equal(gm.size, 0, "richiesta consumata");
   const again = await runUserscript({ href: ORIGIN + "/#statale-open=" + REQ, html: LOGGED, gm });
@@ -651,4 +662,80 @@ test("script 1: resta pubblicato identico e funziona come prima (chi non ha aggi
   assert.equal(await app.arm(REQ), true);
   const r = await runUserscript({ href: ORIGIN + "/#statale-open=" + REQ, html: LOGGED, gm: app.gm, source: v1 });
   assert.equal(r.appended.length, 1);
+});
+
+// ---------- Versione 3: modifiche già confermate nell'app ----------
+const OPS_BOX = { seq: 2, ops: { "done:557": { k: "done", cm: 557, v: 1, n: 1, at: Date.now() }, "read:3": { k: "read", id: 3, n: 2, at: Date.now() } } };
+const CONFIRMED = C.buildRequest(OPS_BOX, { ret: "frag", confirmed: true, user: 42 }).text;
+const OTHER_USER = C.buildRequest(OPS_BOX, { ret: "frag", confirmed: true, user: 77 }).text;
+const UNCONFIRMED = C.buildRequest(OPS_BOX, { ret: "frag" }).text;
+
+test("richiesta: «ok» solo con modifiche confermate, ignorato dal ponte", () => {
+  const o = (t) => JSON.parse(Buffer.from(t.slice(5), "base64url").toString("utf8"));
+  assert.equal(o(CONFIRMED).ok, 1);
+  assert.equal(o(CONFIRMED).u, 42, "legata all'account dei dati");
+  assert.equal(o(UNCONFIRMED).ok, undefined);
+  assert.equal(o(C.buildRequest(OPS_BOX, { ret: "frag", confirmed: true }).text).ok, undefined, "senza account niente «ok»");
+  assert.equal(o(C.buildRequest(C.emptyBox(null), { ret: "frag", confirmed: true }).text).ok, undefined, "senza modifiche niente «ok»");
+  const parsed = P.parseRequest("#statale-open=" + CONFIRMED);
+  assert.deepEqual(Object.keys(parsed).sort(), ["ops", "ret", "rid", "tree"]);
+  assert.equal(parsed.ops.length, 2);
+});
+
+test("script 3: per la richiesta dell'app con modifiche confermate tocca «Applica e aggiorna», una volta", async () => {
+  const gm = new Map();
+  await (await runUserscript({ href: APP_BASE, gm })).arm(CONFIRMED);
+  const r = await runUserscript({ href: ORIGIN + "/#statale-open=" + CONFIRMED, html: LOGGED, gm, panel: "Applica e aggiorna" });
+  assert.equal(r.appended.length, 1);
+  assert.equal(r.appended[0].integrity, C.PONTE.sri);
+  await r.loaded();
+  assert.deepEqual(r.clicks, ["Applica e aggiorna"]);
+  // Anche dopo il login di Ateneo (richiesta in attesa).
+  const gm2 = new Map();
+  await (await runUserscript({ href: APP_BASE, gm: gm2 })).arm(CONFIRMED);
+  await runUserscript({ href: ORIGIN + "/#statale-open=" + CONFIRMED, html: GUEST, gm: gm2 });
+  const after = await runUserscript({ href: ORIGIN + "/my/", html: LOGGED, gm: gm2, panel: "Applica e aggiorna" });
+  await after.loaded();
+  assert.deepEqual(after.clicks, ["Applica e aggiorna"]);
+});
+
+test("script 3: non tocca nulla senza conferma dell'app, su altri pannelli o per link costruiti da altri", async () => {
+  const gm = new Map();
+  await (await runUserscript({ href: APP_BASE, gm })).arm(UNCONFIRMED);
+  const plain = await runUserscript({ href: ORIGIN + "/#statale-open=" + UNCONFIRMED, html: LOGGED, gm, panel: "Applica e aggiorna" });
+  await plain.loaded();
+  assert.deepEqual(plain.clicks, [], "modifiche da confermare sul portale");
+  const gm2 = new Map();
+  await (await runUserscript({ href: APP_BASE, gm: gm2 })).arm(CONFIRMED);
+  const other = await runUserscript({ href: ORIGIN + "/#statale-open=" + CONFIRMED, html: LOGGED, gm: gm2, panel: "Accedi" });
+  await other.loaded();
+  assert.deepEqual(other.clicks, [], "pannello con un altro pulsante (errore): nessun tocco");
+  // Sul portale è entrato un altro account: decide chi c'è (nessun tocco).
+  const gm4 = new Map();
+  await (await runUserscript({ href: APP_BASE, gm: gm4 })).arm(OTHER_USER);
+  const otherAccount = await runUserscript({ href: ORIGIN + "/#statale-open=" + OTHER_USER, html: LOGGED, gm: gm4, panel: "Applica e aggiorna" });
+  await otherAccount.loaded();
+  assert.equal(otherAccount.appended.length, 1);
+  assert.deepEqual(otherAccount.clicks, [], "account diverso da quello dei dati");
+  // Link con modifiche «confermate» costruito da altri: lo script non lo registra e non avvia nulla.
+  const forged = await runUserscript({ href: ORIGIN + "/#statale-open=" + CONFIRMED, html: LOGGED, gm: new Map(), panel: "Applica e aggiorna" });
+  await forged.loaded();
+  assert.equal(forged.appended.length + forged.clicks.length, 0);
+  // La richiesta del ritorno dopo il login non ha modifiche: mai un tocco.
+  const gm3 = new Map([["statale-open-dopo-login", JSON.stringify({ req: STANDING, at: Date.now() })], ["statale-open-accesso", JSON.stringify({ at: Date.now() })]]);
+  const login = await runUserscript({ href: ORIGIN + "/my/", html: LOGGED, gm: gm3, panel: "Applica e aggiorna" });
+  await login.loaded();
+  assert.equal(login.appended.length, 1);
+  assert.deepEqual(login.clicks, []);
+});
+
+test("script 2: resta pubblicato identico e funziona come prima", async () => {
+  const v2 = fs.readFileSync(path.join(DOCS, "ponte/statale-open-2.user.js"), "utf8");
+  const app = await runUserscript({ href: APP_BASE, source: v2 });
+  assert.equal(app.attrs["data-statale-open-auto"], "2");
+  assert.equal(await app.arm(CONFIRMED), true);
+  const r = await runUserscript({ href: ORIGIN + "/#statale-open=" + CONFIRMED, html: LOGGED, gm: app.gm, source: v2, panel: "Applica e aggiorna" });
+  assert.equal(r.appended.length, 1);
+  await r.loaded();
+  assert.deepEqual(r.clicks, [], "la versione 2 lascia la conferma sul portale");
 });
