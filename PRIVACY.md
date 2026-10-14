@@ -28,7 +28,7 @@ che viaggiano direttamente tra il browser e il portale dell'Ateneo.
 - Il ponte gira sulla pagina del portale solo quando tocchi il preferito «Statale Open» oppure, con il ponte automatico, quando tocchi
   «Accedi» o «Aggiorna dal portale» e quando apri l'app con dati più vecchi di un'ora (*Aggiorna da solo all'apertura*, acceso di serie,
   si spegne in *Altro → Ponte con il portale*). La password la scrivi solo sulla pagina del portale: l'app non la vede. Legge i tuoi corsi (nome, avanzamento),
-  sezioni e attività (nome, tipo, completamento), scadenze, avvisi (oggetto e corso, non il testo del messaggio) e l'elenco dei percorsi.
+  sezioni e attività (nome, tipo, completamento), scadenze, avvisi (oggetto, corso o attività e tipo, non il testo del messaggio; con il ponte 2 tutti quelli da leggere) e l'elenco dei percorsi.
   **Non legge** password, cookie, email, voti, testi dei messaggi né dati di altri studenti; la chiave di sessione del portale (sesskey)
   resta in memoria durante la lettura e non viene consegnata all'app.
 - I dati vanno **solo all'app**, sul tuo dispositivo, in uno di questi modi che scegli tu: nell'indirizzo della scheda (`#ponte=…`, compressi;
@@ -45,6 +45,13 @@ che viaggiano direttamente tra il browser e il portale dell'Ateneo.
   di login di Ateneo lo script annota soltanto l'ora in cui la apri: non legge i campi, quindi né l'email né la password.
   Con la versione 3 e *Invia subito le modifiche* acceso, le modifiche che fai nell'app (attività completate, avvisi letti) partono da sole
   pochi secondi dopo: lo script conferma per te il pannello del ponte, solo per le richieste dell'app.
+
+### Note personali (app web)
+
+- Le note restano nell'archivio del browser di questo dispositivo e non vanno mai al portale né al ponte; *Esci* non le cancella.
+- Se colleghi GitHub (*Altro → Note → Salvataggio su GitHub*), l'app le scrive nel file `note.json` di un **tuo repository privato**
+  (l'app rifiuta un repository pubblico) usando una chiave «fine-grained» che crei tu, limitata a quel repository. La chiave resta su questo
+  dispositivo e va solo a `api.github.com`. *Scollega* la toglie dal dispositivo; le note restano su GitHub finché non le cancelli.
 
 ## Con chi parla l'app
 

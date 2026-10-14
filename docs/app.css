@@ -256,3 +256,23 @@ select.pick { font: inherit; font-size: 15px; color: var(--accent); background: 
   border: 1px solid var(--sep); background: var(--cell); color: var(--fg); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
 .mod-done.on { border-color: var(--green); color: var(--green); }
 .mod-done svg { width: 18px; height: 18px; }
+/* Avvisi per argomento / tipo / data */
+.notif-bar { display: flex; gap: 8px; margin-top: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border-radius: 16px; background: var(--fill); color: var(--fg); font-size: 14px; font-weight: 500; }
+.chip.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.chip svg { width: 16px; height: 16px; }
+.gh-btn { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; text-transform: none; letter-spacing: normal; font-size: 15px; font-weight: 600; color: var(--fg); padding: 14px 16px 8px; }
+.gh-btn .gh-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-btn .gh-n { color: var(--fg2); font-weight: 500; font-size: 13px; }
+.gh-btn .chev { width: 16px; height: 16px; color: var(--fg2); transition: transform 0.15s; }
+.pill { min-width: 22px; padding: 1px 7px; border-radius: 11px; background: var(--red); color: #fff; font-size: 12px; font-weight: 700; text-align: center; }
+.ic.kind svg { width: 20px; height: 20px; }
+.alert button.destructive { color: var(--red); }
+/* Note */
+.note-link { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: var(--cell); color: var(--accent); font-weight: 600; font-size: 15px; }
+.note-link svg { width: 18px; height: 18px; }
+.note-link .chev { margin-left: auto; color: var(--fg2); }
+.note-title { font-weight: 600; font-size: 18px; }
+.note-body { width: 100%; min-height: 260px; resize: vertical; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 16px; line-height: 1.45; padding: 0; }
+select.pick.wide { width: 100%; max-width: 100%; text-align: left; }
+

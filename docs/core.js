@@ -176,23 +176,28 @@
   // che l'utente avvia con un preferito sulla pagina del portale. Qui c'è tutto ciò che l'app fa con i suoi dati.
   var ORIGIN = "https://" + MOODLE_HOST;
   var PONTE = {
-    version: 1,
+    version: 2,
     min: 1,
-    file: "ponte/ponte-1.js",
+    file: "ponte/ponte-2.js",
     // Ponte automatico: script per l'estensione Userscripts di Safari, che avvia lo stesso ponte da solo.
-    userscript: "ponte/statale-open-3.user.js",
+    userscript: "ponte/statale-open-4.user.js",
     // Versione dello script che l'app consiglia: la 2 riporta all'app anche dopo il login dalla pagina di Ateneo,
-    // la 3 applica senza chiedere di nuovo le modifiche già confermate nell'app (invio automatico).
-    userscriptVersion: 3,
-    sri: "sha384-WuK1i08q5ugibinF49Tb4mka8bTimQM3l76f9nkUugF8cjVs49zNYCbQDRx0+UN6",
+    // la 3 applica senza chiedere di nuovo le modifiche già confermate nell'app (invio automatico), la 4 usa il ponte 2
+    // (tutti gli avvisi, con l'argomento).
+    userscriptVersion: 4,
+    sri: "sha384-sv5ybvPL9OPZbL1a6cqUgxulx1fmLEtNSU71llhlzMyVqWL6EgEWoAX1XrN05560",
     // Impronte dei file pubblicati: non cambiano mai (i preferiti già installati le controllano).
     known: {
       "ponte/ponte-1.js": "sha384-WuK1i08q5ugibinF49Tb4mka8bTimQM3l76f9nkUugF8cjVs49zNYCbQDRx0+UN6",
+      "ponte/ponte-2.js": "sha384-sv5ybvPL9OPZbL1a6cqUgxulx1fmLEtNSU71llhlzMyVqWL6EgEWoAX1XrN05560",
       "ponte/statale-open-1.user.js": "sha384-jsohAMyb6FdOJpwHi3wiXRr+Zfavm3Yl8mb101rJb8fiB/0tzW8JHptrI+/QIJS8",
       "ponte/statale-open-2.user.js": "sha384-p5OXyxmqU2Zxxl9g+prO/p3n2ntdmZ0tbQcisbaWIlhPjvAwbduGus3mmr4DR4JM",
-      "ponte/statale-open-3.user.js": "sha384-vLxxYT2Htb17zkuXgJqdMx66I71GMvGNIr2YKeVXuNQm1SAp9Pe9vBjTUcWSIpdL"
+      "ponte/statale-open-3.user.js": "sha384-vLxxYT2Htb17zkuXgJqdMx66I71GMvGNIr2YKeVXuNQm1SAp9Pe9vBjTUcWSIpdL",
+      "ponte/statale-open-4.user.js": "sha384-8YKqvzag1QlImDzEiIs7anxSvfSFMGaAn2G9bB5rm9i4Vtc2EI680NQhGKv4DyBX"
     },
-    fragmentCap: 60000,
+    fragmentCap: 250000,
+    // Avvisi tenuti nei dati (il ponte 2 ne legge fino a 1000).
+    maxNotifs: 1000,
     maxEnvelope: 1500000,
     maxJSON: 3000000,
     staleH: 6,
@@ -353,12 +358,18 @@
       snap.events.push({ id: e.id, name: vText(e.name, 200), c: vInt(e.c), cn: vText(e.cn, 200), mod: vMod(e.mod), t: vSec(e.t), u: vPath(e.u), od: typeof e.od === "boolean" ? e.od : null, cm: vInt(e.cm) });
     });
     var notifs = o.notifs || {};
-    vList(notifs.list, 100).forEach(function (n) {
-      if (!n || !vInt(n.id)) return;
-      snap.notifs.list.push({ id: n.id, s: vText(n.s, 200), ctx: vText(n.ctx, 200), u: vPath(n.u), t: vSec(n.t), r: n.r === true });
+    var seenNotif = {};
+    vList(notifs.list, PONTE.maxNotifs).forEach(function (n) {
+      if (!n || !vInt(n.id) || seenNotif[n.id]) return;
+      seenNotif[n.id] = true;
+      // Ponte 2: tipo (componente ed evento di Moodle), attività e corso a cui si riferisce l'avviso.
+      snap.notifs.list.push({ id: n.id, s: vText(n.s, 200), ctx: vText(n.ctx, 200), u: vPath(n.u), t: vSec(n.t), r: n.r === true,
+        comp: vMod(n.comp), ev: vMod(n.ev), cm: vInt(n.cm), crs: vInt(n.crs) });
     });
     snap.notifs.unread = typeof notifs.unread === "number" && notifs.unread >= 0 && notifs.unread % 1 === 0 ? Math.min(notifs.unread, 9999)
       : snap.notifs.list.filter(function (n) { return !n.r; }).length;
+    // Ponte 2: una pagina di avvisi non è arrivata, l'elenco è parziale.
+    if (notifs.part === 1) snap.notifs.part = 1;
     var total = 0;
     Object.keys(o.contents && typeof o.contents === "object" ? o.contents : {}).slice(0, 60).forEach(function (key) {
       if (!/^\d{1,11}$/.test(key) || !vInt(Number(key))) return;
@@ -402,14 +413,38 @@
     return snap;
   }
 
+  // L'elenco letto contiene tutti gli avvisi da leggere (il conteggio del portale è il totale):
+  // uno che non c'è è già stato letto, anche dal sito.
+  function notifsComplete(snap) {
+    if (!snap.parts.notifs || snap.notifs.part) return false;
+    var unread = 0;
+    snap.notifs.list.forEach(function (n) { if (!n.r) unread++; });
+    return unread >= snap.notifs.unread;
+  }
   // Unisce i dati nuovi a quelli già salvati: una parte non letta questa volta resta quella di prima (segnata come vecchia).
-  function mergeSnapshot(prev, next) {
+  // readOk: avvisi che il ponte ha appena segnato come letti sul portale.
+  function mergeSnapshot(prev, next, readOk) {
     var out = JSON.parse(JSON.stringify(next));
     if (!prev || prev.user.id !== next.user.id) return out;
     out.stale = {};
     if (!next.parts.courses && prev.courses.length) { out.courses = prev.courses; out.stale.courses = true; }
     if (!next.parts.events && prev.events.length) { out.events = prev.events; out.stale.events = true; }
     if (!next.parts.notifs && prev.notifs.list.length) { out.notifs = prev.notifs; out.stale.notifs = true; }
+    else if (next.parts.notifs && prev.notifs.list.length) {
+      // Gli avvisi già visti restano (fino a 6 mesi). Uno che non torna più è stato letto se l'elenco nuovo li ha tutti
+      // quelli da leggere; con il ponte 1, che ne legge solo gli ultimi 50, resta solo come letto: il suo stato
+      // non si aggiornerebbe più. Uno più recente della lettura (dati vecchi importati) resta com'era.
+      var have = {}, at = next.at / 1000, horizon = at - 183 * 86400, complete = notifsComplete(next), done = {};
+      (readOk || []).forEach(function (id) { done[id] = true; });
+      out.notifs.list.forEach(function (n) { have[n.id] = true; });
+      prev.notifs.list.forEach(function (n) {
+        if (have[n.id] || n.t < horizon) return;
+        var read = n.r || done[n.id] || (n.t <= at && (complete || next.bv < 2));
+        out.notifs.list.push(read && !n.r ? Object.assign({}, n, { r: true }) : n);
+      });
+      out.notifs.list.sort(function (a, b) { return b.t - a.t; });
+      out.notifs.list = out.notifs.list.slice(0, PONTE.maxNotifs);
+    }
     if (!next.parts.user && prev.user.name) { out.user = prev.user; }
     var keep = {};
     out.courses.forEach(function (c) { keep[c.id] = true; });
@@ -439,7 +474,7 @@
       }).sort(function (a, b) { return a.t - b.t; }),
       notifications: {
         list: snap.notifs.list.map(function (n) {
-          return { id: n.id, subject: n.s, ctx: n.ctx, url: portalURL(n.u), t: n.t * 1000, read: n.r };
+          return { id: n.id, subject: n.s, ctx: n.ctx, url: portalURL(n.u), t: n.t * 1000, read: n.r, comp: n.comp || "", ev: n.ev || "", cm: n.cm || null, crs: n.crs || null };
         }).sort(function (a, b) { return b.t - a.t; }),
         unread: snap.notifs.unread
       }
@@ -533,7 +568,7 @@
     if (op.k === "read") {
       if (!snap.parts.notifs) return null;
       var n = snap.notifs.list.filter(function (x) { return x.id === op.id; })[0];
-      return n ? n.r : true;
+      return n ? n.r : notifsComplete(snap) ? true : null;
     }
     var c = snap.contents[op.c];
     if (!c || !c.sections || c.stale) return null;
@@ -545,11 +580,11 @@
   // Dopo ogni importazione: toglie le modifiche arrivate al portale, tiene quelle da ritentare, segnala quelle rifiutate.
   function reconcile(args) {
     var box = JSON.parse(JSON.stringify(args.box || emptyBox())), snap = args.snap, res = snap.res, pending = args.pending;
-    var now = args.now == null ? Date.now() : args.now, failed = [], notes = [];
+    var now = args.now == null ? Date.now() : args.now, failed = [], notes = [], readOk = [];
     var matched = !!(res && pending && res.rid === pending.rid);
     Object.keys(box.ops).forEach(function (key) {
       var op = box.ops[key], r = matched ? res.ops[key + "#" + op.n] : null;
-      if (r && r.s === "ok") { delete box.ops[key]; return; }
+      if (r && r.s === "ok") { if (op.k === "read") readOk.push(op.id); delete box.ops[key]; return; }
       if (r && r.s === "fail" && r.p) { delete box.ops[key]; failed.push({ key: key, label: op.label || "", m: r.m, at: now, refused: true }); return; }
       if (satisfied(op, snap) === true) { delete box.ops[key]; return; }
       if (r) op.tries = (op.tries || 0) + 1;
@@ -559,7 +594,7 @@
     if (sentKeys.length && !matched && sentKeys.some(function (k) { return box.ops[k.split("#")[0]]; })) {
       notes.push("Le modifiche non sono arrivate al portale (probabilmente per l'accesso). Tocca «Aggiorna dal portale» per riprovare.");
     }
-    return { box: box, failed: failed, notes: notes, matched: matched };
+    return { box: box, failed: failed, notes: notes, matched: matched, readOk: readOk };
   }
 
   // Quanto sono vecchi i dati del ponte: freschi sotto le 6 ore, vecchi dopo 48.
@@ -567,6 +602,90 @@
     now = now == null ? Date.now() : now;
     var age = now - at;
     return age < PONTE.staleH * H ? "fresh" : age < PONTE.oldH * H ? "stale" : "old";
+  }
+
+
+  // ---------- Avvisi per argomento (solo nell'app) ----------
+  // Tipo dell'avviso: dal componente di Moodle (ponte 2) o, se manca, dall'indirizzo.
+  var KINDS = [
+    { key: "forum", label: "Forum e annunci", icon: "bubble", test: /^mod_forum$|\/mod\/forum\// },
+    { key: "assign", label: "Compiti ed e-tivity", icon: "tray", test: /^mod_assign$|\/mod\/assign\// },
+    { key: "quiz", label: "Quiz", icon: "pencil", test: /^mod_quiz$|\/mod\/quiz\// },
+    { key: "grade", label: "Valutazioni", icon: "chart", test: /grade|\/grade\// },
+    { key: "badge", label: "Badge e certificati", icon: "cap", test: /badge|certificate|\/badges\// },
+    { key: "activity", label: "Altre attività", icon: "doc", test: /^mod_|\/mod\// },
+    { key: "other", label: "Altri avvisi", icon: "bell", test: /.^/ }
+  ];
+  function notifKind(n) {
+    var path = "";
+    try { path = n.url ? new URL(n.url).pathname : ""; } catch (e) { path = ""; }
+    for (var i = 0; i < KINDS.length - 1; i++) {
+      var k = KINDS[i];
+      if ((n.comp && k.test.test(n.comp)) || (n.ev && k.key === "grade" && /grade/.test(n.ev)) || (path && k.test.test(path))) return k;
+    }
+    return KINDS[KINDS.length - 1];
+  }
+  // Indice per l'argomento: corsi, attività → corso e nomi delle attività → corso (dai dati letti).
+  function notifIndex(courses, contents) {
+    var idx = { courses: {}, cm: {}, names: {} };
+    (courses || []).forEach(function (c) { if (c && c.id) idx.courses[c.id] = c.name; });
+    Object.keys(contents || {}).forEach(function (key) {
+      var c = contents[key], id = Number(key);
+      (c && c.sections || []).forEach(function (s) {
+        (s.m || s.modules || []).forEach(function (m) {
+          var name = (m.n || m.name || "").toLowerCase();
+          if (m.id && !(m.id in idx.cm)) idx.cm[m.id] = id;
+          if (name && !(name in idx.names)) idx.names[name] = id;
+        });
+      });
+    });
+    return idx;
+  }
+  // Argomento: il corso (dal ponte 2, dall'attività, dall'indirizzo o dal nome), altrimenti la pagina (es. «Annunci»).
+  function notifTopic(n, idx) {
+    var course = null;
+    if (n.crs && idx.courses[n.crs]) course = n.crs;
+    if (!course && n.cm && idx.cm[n.cm]) course = idx.cm[n.cm];
+    if (!course && n.url) {
+      try {
+        var u = new URL(n.url), id = Number(u.searchParams.get("id")) || Number(u.searchParams.get("course"));
+        if (/^\/(course\/view|grade\/report\/[a-z]+\/index|course\/user)\.php$/.test(u.pathname) && idx.courses[id]) course = id;
+        if (!course && /^\/mod\/[a-z0-9_]+\/view\.php$/.test(u.pathname) && idx.cm[id]) course = idx.cm[id];
+      } catch (e) { /* indirizzo non valido */ }
+    }
+    var ctx = (n.ctx || "").trim();
+    if (!course && ctx) {
+      var lower = ctx.toLowerCase();
+      Object.keys(idx.courses).forEach(function (id) { if (!course && idx.courses[id].toLowerCase() === lower) course = Number(id); });
+      if (!course && idx.names[lower]) course = idx.names[lower];
+    }
+    if (course) return { key: "c" + course, title: idx.courses[course], courseId: course };
+    return ctx ? { key: "x" + ctx.toLowerCase(), title: ctx, courseId: null } : { key: "g", title: "Generale", courseId: null };
+  }
+
+  // ---------- Note personali (sul dispositivo e, se collegato, in un repository GitHub privato) ----------
+  var NOTE_TTL = 90 * D; // le note cancellate restano come «cancellate» per 90 giorni, così la cancellazione arriva ovunque
+  function sanitizeNotes(list, now) {
+    now = now == null ? Date.now() : now;
+    var seen = {};
+    return vList(list, 2000).map(function (n) {
+      if (!n || typeof n.id !== "string" || !/^[A-Za-z0-9_-]{6,40}$/.test(n.id) || seen[n.id]) return null;
+      seen[n.id] = true;
+      // Un orologio avanti (data sbagliata, poi corretta) non fa perdere la nota: la data si riporta al massimo a domani.
+      var updated = typeof n.updated === "number" && isFinite(n.updated) && n.updated > 0 ? Math.min(n.updated, now + D) : 0;
+      if (!updated) return null;
+      if (n.deleted === true) return now - updated < NOTE_TTL ? { id: n.id, deleted: true, updated: updated } : null;
+      return {
+        id: n.id, title: vText(n.title, 200), body: typeof n.body === "string" ? n.body.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").slice(0, 20000) : "",
+        course: vInt(n.course), created: typeof n.created === "number" && n.created > 0 ? n.created : updated, updated: updated
+      };
+    }).filter(Boolean);
+  }
+  // Unione di due copie: per ogni nota vince la modifica più recente (anche una cancellazione).
+  function mergeNotes(a, b, now) {
+    var out = {}, list = sanitizeNotes(a, now).concat(sanitizeNotes(b, now));
+    list.forEach(function (n) { var cur = out[n.id]; if (!cur || n.updated > cur.updated || (n.updated === cur.updated && n.deleted && !cur.deleted)) out[n.id] = n; });
+    return Object.keys(out).map(function (k) { return out[k]; }).sort(function (x, y) { return y.updated - x.updated; });
   }
 
   return {
@@ -581,7 +700,7 @@
     findEnvelope: findEnvelope,
     decodePayload: decodePayload,
     validateSnapshot: validateSnapshot,
-    mergeSnapshot: mergeSnapshot,
+    mergeSnapshot: mergeSnapshot, notifsComplete: notifsComplete,
     portalURL: portalURL,
     dueByCm: dueByCm,
     toModels: toModels,
@@ -597,6 +716,12 @@
     requestURL: requestURL,
     reconcile: reconcile,
     staleness: staleness,
+    KINDS: KINDS,
+    notifKind: notifKind,
+    notifIndex: notifIndex,
+    notifTopic: notifTopic,
+    sanitizeNotes: sanitizeNotes,
+    mergeNotes: mergeNotes,
     htmlStripped: htmlStripped,
     classify: classify,
     isCompleted: isCompleted,

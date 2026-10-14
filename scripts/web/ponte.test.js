@@ -6,7 +6,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const C = require("../../docs/core.js");
-const P = require("../../docs/ponte/ponte-1.js");
+// Il ponte in uso (quello del preferito e dello script); la versione 1 resta pubblicata per chi la usa ancora.
+const P = require("../../docs/" + C.PONTE.file);
+const P1 = require("../../docs/ponte/ponte-1.js");
 const { createPortal, ORIGIN } = require("./mock-portal.js");
 
 const DOCS = path.resolve(__dirname, "../../docs");
@@ -47,7 +49,7 @@ test("il codice del preferito: ASCII, impronta e indirizzo giusti, niente %", ()
   assert.match(b, /^javascript:[\x21-\x7E]+$/);
   assert.ok(b.length < 1200, "preferito troppo lungo: " + b.length);
   const code = decodeURIComponent(b.slice("javascript:".length));
-  assert.ok(code.includes('s.src="' + APP_BASE + "ponte/ponte-1.js\""));
+  assert.ok(code.includes('s.src="' + APP_BASE + C.PONTE.file + '"'));
   assert.ok(code.includes('s.integrity="' + C.PONTE.sri + '"'));
   assert.ok(code.includes('s.crossOrigin="anonymous"') && code.includes('s.referrerPolicy="no-referrer"'));
   assert.ok(code.includes('location.hostname!=="lastataleopen.myariel.unimi.it"'));
@@ -275,7 +277,7 @@ test("modelli delle viste dai dati del ponte", async () => {
   assert.deepEqual(Object.keys(m.siteInfo).sort(), ["firstname", "fullname", "sitename", "userid", "username"]);
   assert.deepEqual(Object.keys(m.courses[0]).sort(), ["category", "id", "last", "name", "progress", "short"]);
   assert.deepEqual(Object.keys(m.events[0]).sort(), ["courseId", "courseName", "id", "mod", "name", "overdue", "t", "url"]);
-  assert.deepEqual(Object.keys(m.notifications.list[0]).sort(), ["ctx", "id", "read", "subject", "t", "url"]);
+  assert.deepEqual(Object.keys(m.notifications.list[0]).sort(), ["cm", "comp", "crs", "ctx", "ev", "id", "read", "subject", "t", "url"]);
   assert.ok(m.events[0].t < m.events[1].t);
   const sections = C.sectionsFor(s, 101, C.emptyBox(42));
   const etivity = sections[0].modules[0];
@@ -483,7 +485,7 @@ test("ponte automatico: parte solo la richiesta registrata dall'app, una volta s
   await (await runUserscript({ href: APP_BASE, gm })).arm(REQ);
   const r = await runUserscript({ href: ORIGIN + "/#statale-open=" + REQ, html: LOGGED, gm });
   assert.equal(r.appended.length, 1);
-  assert.deepEqual(r.appended[0], { tag: "script", src: APP_BASE + "ponte/ponte-1.js", integrity: C.PONTE.sri, crossOrigin: "anonymous", referrerPolicy: "no-referrer", onerror: r.appended[0].onerror });
+  assert.deepEqual(r.appended[0], { tag: "script", src: APP_BASE + C.PONTE.file, integrity: C.PONTE.sri, crossOrigin: "anonymous", referrerPolicy: "no-referrer", onerror: r.appended[0].onerror });
   await r.loaded();
   assert.deepEqual(r.clicks, [], "senza modifiche confermate nell'app non tocca nulla");
   assert.equal(r.assigned.length, 0);
@@ -607,7 +609,7 @@ test("script 2: dopo il login di Ateneo la pagina d'arrivo torna all'app con la 
     const r = await runUserscript({ href: ORIGIN + landing, html: LOGGED, gm });
     assert.deepEqual(r.replaced, [landing + "#statale-open=" + STANDING], landing);
     assert.equal(r.appended.length, 1);
-    assert.equal(r.appended[0].src, APP_BASE + "ponte/ponte-1.js");
+    assert.equal(r.appended[0].src, APP_BASE + C.PONTE.file);
     assert.equal(r.appended[0].integrity, C.PONTE.sri);
     assert.deepEqual([...gm.keys()], ["statale-open-dopo-login"], "annotazione usata una volta sola; la richiesta resta per il prossimo login");
     const again = await runUserscript({ href: ORIGIN + landing, html: LOGGED, gm });
@@ -738,4 +740,197 @@ test("script 2: resta pubblicato identico e funziona come prima", async () => {
   assert.equal(r.appended.length, 1);
   await r.loaded();
   assert.deepEqual(r.clicks, [], "la versione 2 lascia la conferma sul portale");
+});
+
+// ---------- Ponte 2: tutti gli avvisi, con l'argomento ----------
+test("ponte 2: avvisi a pagine fino ad averli tutti da leggere, con tipo, attività e corso", async () => {
+  const portal = createPortal();
+  const now = Math.floor(Date.now() / 1000);
+  // 300 avvisi: 172 da leggere sparsi nel tempo (come sul portale vero).
+  portal.st.notifications = Array.from({ length: 300 }, (_, i) => ({
+    id: 1000 + i, subject: "Avviso " + i, timecreated: now - i * 60, read: i % 7 > 3 && i < 290 ? true : i >= 172 && i % 7 <= 3 ? true : false,
+    contexturl: ORIGIN + "/mod/assign/view.php?id=555", contexturlname: "E-tivity 1", component: "mod_assign", eventtype: "assign_notification"
+  }));
+  const unread = portal.st.notifications.filter((n) => !n.read).length;
+  const before = portal.st.posts;
+  const { snap } = await snapshotFrom(portal);
+  const got = snap.notifs.list;
+  assert.equal(snap.notifs.unread, unread);
+  assert.equal(got.filter((n) => !n.r).length, unread, "tutti quelli da leggere");
+  assert.ok(got.length >= 100 && got.length <= 300);
+  assert.deepEqual(Object.keys(got[0]).sort(), ["comp", "crs", "ctx", "cm", "ev", "id", "r", "s", "t", "u"].sort());
+  assert.equal(got[0].comp, "mod_assign");
+  assert.equal(got[0].ev, "assign_notification");
+  assert.equal(got[0].cm, 555, "attività dall'indirizzo");
+  // Poche richieste: la prima pagina con il resto della lettura, poi 4 pagine per richiesta.
+  assert.ok(portal.st.posts - before <= 6, "richieste: " + (portal.st.posts - before));
+  // Ponte 1: solo i primi 50.
+  const old = await P1.collect(envFor(portal), null, () => {});
+  assert.equal(old.notifs.list.length, 50);
+});
+
+test("ponte 2: dati in più dell'avviso (customdata) ridotti a numeri, niente testo del messaggio", () => {
+  const r = P.normNotifications({ unreadcount: 2, notifications: [
+    { id: 1, subject: "Post", fullmessage: "TESTO PRIVATO", smallmessage: "TESTO", contexturl: ORIGIN + "/mod/forum/discuss.php?d=9", contexturlname: "Annunci",
+      component: "mod_forum", eventtype: "posts", customdata: JSON.stringify({ cmid: 560, courseid: 101, postid: 3, notificationiconurl: "https://x" }) },
+    { id: 1, subject: "Doppio", component: "mod_forum" },
+    { id: 2, subject: "Strano", component: "<script>", eventtype: "a b", customdata: "{non json", contexturl: "https://esterno.example/" }
+  ] });
+  assert.equal(r.list.length, 2, "avvisi doppi tolti");
+  assert.deepEqual(r.list[0], { id: 1, s: "Post", ctx: "Annunci", u: "/mod/forum/discuss.php?d=9", t: 0, r: false, comp: "mod_forum", ev: "posts", cm: 560, crs: 101 });
+  assert.deepEqual(r.list[1], { id: 2, s: "Strano", ctx: "", u: null, t: 0, r: false, comp: "", ev: "", cm: null, crs: null });
+  assert.ok(!JSON.stringify(r).includes("TESTO"));
+});
+
+test("ponte 2: una pagina che manca non perde quelle già lette; mai oltre 1000", async () => {
+  let calls = 0;
+  const page = (offset, limit) => Array.from({ length: limit }, (_, i) => ({ id: offset + i + 1, subject: "n", read: false, timecreated: 1700000000 }));
+  const env = { wwwroot: ORIGIN, sesskey: "abc123", userId: 42, requests: 0, fetch: async (url, init) => {
+    calls += 1;
+    const body = JSON.parse(init.body);
+    const out = body.map((c) => c.args.offset >= 150 ? { error: true, exception: { errorcode: "dmlreadexception", message: "x" } } : { error: false, data: { notifications: page(c.args.offset, c.args.limit), unreadcount: 5000 } });
+    return { ok: true, status: 200, type: "basic", text: async () => JSON.stringify(out) };
+  } };
+  const r = await P.moreNotifications(env, { notifications: page(0, 50), unreadcount: 5000 }, () => {});
+  assert.equal(r.notifications.length, 150, "pagine fino a quella che manca");
+  assert.equal(r.partial, true);
+  assert.equal(P.normNotifications(r).part, 1, "elenco segnato come parziale");
+  // Una richiesta che non risponde (rete, tempo scaduto, errore del server): restano quelle lette, segnate come parziali.
+  let n2 = 0;
+  const flaky = { wwwroot: ORIGIN, sesskey: "abc123", userId: 42, requests: 0, fetch: async (url, init) => {
+    n2 += 1;
+    if (n2 === 2) throw new TypeError("Load failed");
+    const body = JSON.parse(init.body);
+    return { ok: true, status: 200, type: "basic", text: async () => JSON.stringify(body.map((c) => ({ error: false, data: { notifications: page(c.args.offset, c.args.limit), unreadcount: 5000 } }))) };
+  } };
+  const f = await P.moreNotifications(flaky, { notifications: page(0, 50), unreadcount: 5000 }, () => {});
+  assert.deepEqual([f.notifications.length, f.partial], [150, true]);
+  // Sessione scaduta a metà: si ferma tutto come prima (va rifatto l'accesso).
+  const expired = { wwwroot: ORIGIN, sesskey: "abc123", userId: 42, requests: 0, fetch: async (url, init) => {
+    const body = JSON.parse(init.body);
+    return { ok: true, status: 200, type: "basic", text: async () => JSON.stringify(body.map(() => ({ error: true, exception: { errorcode: "invalidsesskey", message: "x" } }))) };
+  } };
+  await assert.rejects(P.moreNotifications(expired, { notifications: page(0, 50), unreadcount: 5000 }, () => {}), (e) => e.code === "expired");
+  // Un avviso nuovo durante la lettura sposta le pagine di uno: il doppione non conta due volte.
+  let shift = 0;
+  const moving = { wwwroot: ORIGIN, sesskey: "abc123", userId: 42, requests: 0, fetch: async (url, init) => {
+    const body = JSON.parse(init.body);
+    shift = 1;
+    return { ok: true, status: 200, type: "basic", text: async () => JSON.stringify(body.map((c) => ({ error: false, data: {
+      notifications: page(Math.max(0, c.args.offset - shift), c.args.limit).map((x) => Object.assign(x, { read: x.id > 120 })), unreadcount: 120 } }))) };
+  } };
+  const mv = await P.moreNotifications(moving, { notifications: page(0, 50), unreadcount: 120 }, () => {});
+  const ids = mv.notifications.map((x) => x.id);
+  assert.equal(new Set(ids).size, ids.length, "nessun doppione");
+  assert.ok(ids.includes(120) && !mv.partial, "letti fino all'ultimo da leggere");
+  const many = { wwwroot: ORIGIN, sesskey: "abc123", userId: 42, requests: 0, fetch: async (url, init) => {
+    const body = JSON.parse(init.body);
+    return { ok: true, status: 200, type: "basic", text: async () => JSON.stringify(body.map((c) => ({ error: false, data: { notifications: page(c.args.offset, c.args.limit), unreadcount: 5000 } }))) };
+  } };
+  const all = await P.moreNotifications(many, { notifications: page(0, 50), unreadcount: 5000 }, () => {});
+  assert.ok(all.notifications.length >= 1000 && all.notifications.length < 1200);
+  assert.equal(P.normNotifications(all).list.length, 1000);
+});
+
+test("app: gli avvisi già visti restano tra un aggiornamento e l'altro (ponte 2: quelli spariti sono letti)", () => {
+  const base = { f: "statale-open-ponte", v: 1, bv: 2, sid: "abcdefgh12", at: Date.now(), user: { id: 42 }, parts: { notifs: true, courses: true, events: true, user: true }, courses: [], events: [], contents: {} };
+  const t = Math.floor(Date.now() / 1000);
+  const prev = C.validateSnapshot(Object.assign({}, base, { notifs: { unread: 2, list: [{ id: 1, s: "vecchio", t: t - 9000, r: false }, { id: 2, s: "nuovo", t: t - 60, r: false }] } }));
+  const next = C.validateSnapshot(Object.assign({}, base, { sid: "abcdefgh13", notifs: { unread: 1, list: [{ id: 2, s: "nuovo", t: t - 60, r: false, comp: "mod_forum", crs: 101 }] } }));
+  const merged = C.mergeSnapshot(prev, next);
+  assert.deepEqual(merged.notifs.list.map((n) => [n.id, n.r]), [[2, false], [1, true]]);
+  assert.equal(merged.notifs.list[0].crs, 101);
+  // Ponte 1 (ultimi 50): uno vecchio che non torna resta solo come letto, altrimenti non si potrebbe più togliere.
+  const v1next = Object.assign({}, next, { bv: 1, notifs: { unread: 3, list: next.notifs.list } });
+  const v1 = C.mergeSnapshot(prev, v1next);
+  assert.deepEqual(v1.notifs.list.map((n) => [n.id, n.r]), [[2, false], [1, true]], "ponte 1: solo come letto");
+  // Ponte 2 con l'elenco incompleto (una pagina mancante, o il conteggio del portale più alto): lo stato resta com'era...
+  const partial = Object.assign({}, next, { notifs: Object.assign({}, next.notifs, { part: 1 }) });
+  assert.deepEqual(C.mergeSnapshot(prev, partial).notifs.list.map((n) => [n.id, n.r]), [[2, false], [1, false]], "pagina mancante");
+  const fewer = Object.assign({}, next, { notifs: { unread: 5, list: next.notifs.list } });
+  assert.deepEqual(C.mergeSnapshot(prev, fewer).notifs.list.map((n) => [n.id, n.r]), [[2, false], [1, false]], "conteggio più alto");
+  // ...salvo che il ponte l'abbia appena segnato come letto sul portale.
+  assert.deepEqual(C.mergeSnapshot(prev, partial, [1]).notifs.list.map((n) => [n.id, n.r]), [[2, false], [1, true]], "segnato ora");
+  // Dati vecchi importati: un avviso più recente della lettura resta com'era.
+  const older = Object.assign({}, next, { at: (t - 3600) * 1000, notifs: { unread: 0, list: [] } });
+  assert.deepEqual(C.mergeSnapshot(prev, older).notifs.list.map((n) => [n.id, n.r]), [[2, false], [1, true]]);
+  // Una modifica «letto» per un avviso che non c'è: fatta solo se l'elenco è completo.
+  let box = C.enqueueOp(C.emptyBox(42), { k: "read", id: 1, label: "vecchio" }, false, [], Date.now());
+  assert.equal(Object.keys(C.reconcile({ box, snap: partial, pending: null }).box.ops).length, 1, "incompleto: resta da inviare");
+  assert.equal(Object.keys(C.reconcile({ box, snap: next, pending: null }).box.ops).length, 0, "completo: già letto");
+  // Il ponte la conferma: tra quelli segnati come letti.
+  box = C.enqueueOp(box, { k: "read", id: 1, label: "vecchio" }, false, [], Date.now());
+  const pend = { rid: "abcdefghijklmnop", keys: ["read:1#" + box.ops["read:1"].n] };
+  const res = { rid: "abcdefghijklmnop", ops: { ["read:1#" + box.ops["read:1"].n]: { s: "ok", p: 0, m: "" } } };
+  assert.deepEqual(C.reconcile({ box, snap: Object.assign({}, partial, { res }), pending: pend }).readOk, [1]);
+  const big = C.validateSnapshot(Object.assign({}, base, { notifs: { unread: 0, list: Array.from({ length: 1200 }, (_, i) => ({ id: i + 1, s: "x", t: t - i })) } }));
+  assert.equal(big.notifs.list.length, 1000);
+});
+
+test("script 4: carica il ponte 2 con la sua impronta, stessa sicurezza della versione 3", async () => {
+  assert.ok(USERSCRIPT.includes('var BRIDGE = APP + "ponte/ponte-2.js";'));
+  assert.ok(USERSCRIPT.includes('var INTEGRITY = "' + C.PONTE.known["ponte/ponte-2.js"] + '";'));
+  const v3 = fs.readFileSync(path.join(DOCS, "ponte/statale-open-3.user.js"), "utf8");
+  // Uguale alla 3 tranne versione, commento, ponte e impronta.
+  const strip = (t) => t.replace(/\/\/ @version.*\n/, "").replace(/\/\*[\s\S]*?\*\//, "").replace(/ponte-[12]\.js/g, "ponte-N.js").replace(/sha384-[A-Za-z0-9+/=]+/g, "sha384-X").replace(/"data-statale-open-auto", "[34]"/, "");
+  assert.equal(strip(USERSCRIPT), strip(v3));
+  const gm = new Map();
+  await (await runUserscript({ href: APP_BASE, gm })).arm(CONFIRMED);
+  const r = await runUserscript({ href: ORIGIN + "/#statale-open=" + CONFIRMED, html: LOGGED, gm, panel: "Applica e aggiorna" });
+  assert.equal(r.appended[0].src, APP_BASE + "ponte/ponte-2.js");
+  await r.loaded();
+  assert.deepEqual(r.clicks, ["Applica e aggiorna"]);
+});
+
+test("ponte 2: uguale al ponte 1 fuori dagli avvisi (pannello e conferme compresi)", () => {
+  const p1 = fs.readFileSync(path.join(DOCS, "ponte/ponte-1.js"), "utf8");
+  const p2 = fs.readFileSync(path.join(DOCS, "ponte/ponte-2.js"), "utf8");
+  // Dal pannello fino all'elenco delle funzioni esportate per i test (che nel ponte 2 ha in più moreNotifications).
+  const panel = (t) => t.slice(t.indexOf("// ---------- Pannello sulla pagina del portale ----------"), t.lastIndexOf("  return {"));
+  assert.equal(panel(p2).replace(/ponte-2/g, "ponte-1"), panel(p1), "pannello, consegna e conferme identici");
+  for (const word of ["fetch(", "XMLHttpRequest", "localStorage", "document.cookie", "eval(", "Function("]) {
+    assert.equal(p2.split(word).length, p1.split(word).length, word);
+  }
+});
+
+// ---------- Avvisi per argomento e note personali ----------
+test("avvisi: argomento dal corso, dall'attività, dall'indirizzo o dal nome; tipo dal componente", () => {
+  const idx = C.notifIndex([{ id: 101, name: "Fondamenti di cybersecurity" }, { id: 103, name: "Sicurezza delle reti" }],
+    { 101: { sections: [{ m: [{ id: 555, n: "E-tivity 1" }, { id: 560, n: "Annunci del corso" }] }] }, 103: { sections: [{ m: [{ id: 555, n: "duplicato" }] }] } });
+  const topic = (n) => C.notifTopic(n, idx).key;
+  assert.equal(topic({ crs: 103, cm: 555 }), "c103", "il corso indicato dal portale vince");
+  assert.equal(topic({ cm: 555 }), "c101", "attività → corso (la prima trovata)");
+  assert.equal(topic({ url: "https://lastataleopen.myariel.unimi.it/mod/assign/view.php?id=555" }), "c101");
+  assert.equal(topic({ url: "https://lastataleopen.myariel.unimi.it/grade/report/user/index.php?id=103" }), "c103");
+  assert.equal(topic({ ctx: "Annunci del corso" }), "c101", "nome dell'attività");
+  assert.equal(topic({ ctx: "Sicurezza delle reti" }), "c103", "nome del corso");
+  assert.deepEqual(C.notifTopic({ ctx: "Bacheca di Ateneo" }, idx), { key: "xbacheca di ateneo", title: "Bacheca di Ateneo", courseId: null });
+  assert.equal(topic({}), "g");
+  assert.equal(C.notifKind({ comp: "mod_forum" }).key, "forum");
+  assert.equal(C.notifKind({ comp: "moodle", ev: "gradenotifications" }).key, "grade");
+  assert.equal(C.notifKind({ url: "https://lastataleopen.myariel.unimi.it/mod/quiz/view.php?id=1" }).key, "quiz");
+  assert.equal(C.notifKind({ comp: "mod_feedback" }).key, "activity");
+  assert.equal(C.notifKind({ comp: "moodle" }).key, "other");
+});
+
+test("note: unione per nota (vince la modifica più recente, anche la cancellazione), dati ripuliti", () => {
+  const now = Date.now();
+  const a = [{ id: "nota0001", title: "Locale", body: "a", updated: now - 1000, created: now - 5000 }, { id: "nota0002", title: "Da cancellare", body: "", updated: now - 3000 }];
+  const b = [{ id: "nota0001", title: "Remota più vecchia", body: "b", updated: now - 2000 }, { id: "nota0002", deleted: true, updated: now - 100 },
+    { id: "nota0003", title: "Nuova altrove", body: "c", course: 101, updated: now - 50 }, { id: "bad id!", title: "x", updated: now },
+    { id: "nota0004", title: "x".repeat(300), body: "\u0000ok", updated: now + 10 * 86400e3 }, { id: "nota0005", deleted: true, updated: now - 100 * 86400e3 }];
+  const m = C.mergeNotes(a, b, now);
+  // Una data nel futuro (orologio avanti) non fa perdere la nota: si riporta a domani.
+  assert.deepEqual(m.map((n) => n.id), ["nota0004", "nota0003", "nota0002", "nota0001"]);
+  assert.equal(m[0].updated, now + 86400e3);
+  assert.equal(m[0].title.length, 200);
+  assert.equal(m[0].body, "ok");
+  assert.equal(m.find((n) => n.id === "nota0001").title, "Locale");
+  assert.deepEqual(m.find((n) => n.id === "nota0002"), { id: "nota0002", deleted: true, updated: now - 100 });
+  assert.equal(m.find((n) => n.id === "nota0003").course, 101);
+  // Uguale in entrambi i versi.
+  assert.deepEqual(C.mergeNotes(b, a, now), m);
+  const clean = C.sanitizeNotes([{ id: "nota0006", title: "t".repeat(300), body: "\u0000ciao", updated: now }], now)[0];
+  assert.equal(clean.title.length, 200);
+  assert.equal(clean.body, "ciao");
 });

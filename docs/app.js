@@ -97,7 +97,8 @@
   var KEYS = {
     session: "so.session", phase: "so.phase", settings: "so.settings", update: "so.update", demo: "so.demo", toggles: "so.demo.toggles",
     ponteSnap: "so.ponte.snap", ponteBox: "so.ponte.outbox", ponteReq: "so.ponte.req", ponteLast: "so.ponte.last", ponteFail: "so.ponte.fail",
-    ponteAuto: "so.ponte.auto", ponteStanding: "so.ponte.standing", ponteSent: "so.ponte.sent", ponteNoManual: "so.ponte.nomanual"
+    ponteAuto: "so.ponte.auto", ponteStanding: "so.ponte.standing", ponteSent: "so.ponte.sent", ponteNoManual: "so.ponte.nomanual",
+    notes: "so.notes", notesGit: "so.notes.github"
   };
   var PONTE_KEYS = [KEYS.ponteSnap, KEYS.ponteBox, KEYS.ponteReq, KEYS.ponteLast, KEYS.ponteFail, KEYS.ponteAuto, KEYS.ponteStanding, KEYS.ponteSent, KEYS.ponteNoManual];
   function readJSON(key, fallback) { try { var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; } }
@@ -189,7 +190,8 @@
     };
   }
   function normNotification(n) {
-    return { id: n.id, subject: C.htmlStripped(n.subject), ctx: n.contexturlname ? C.htmlStripped(n.contexturlname) : "", url: n.contexturl || "", t: n.timecreated * 1000, read: !!n.read };
+    return { id: n.id, subject: C.htmlStripped(n.subject), ctx: n.contexturlname ? C.htmlStripped(n.contexturlname) : "", url: n.contexturl || "", t: n.timecreated * 1000, read: !!n.read,
+      comp: typeof n.component === "string" ? n.component : "", ev: typeof n.eventtype === "string" ? n.eventtype : "", cm: null, crs: null };
   }
   function normCategory(c) { return { id: c.id, name: C.htmlStripped(c.name), parent: c.parent, coursecount: c.coursecount || 0 }; }
   function normSections(courseId, sections) {
@@ -232,6 +234,7 @@
     },
     markRead: function (id) { return S.client.call("core_message_mark_notification_read", { notificationid: id, timeread: Math.floor(Date.now() / 1000) }); },
     markAllRead: function () { return S.client.call("core_message_mark_all_notifications_as_read", { useridto: S.siteInfo.userid }); },
+    markManyRead: async function (ids) { for (var i = 0; i < ids.length; i++) await Real.markRead(ids[i]); },
     categories: async function (parent) {
       var list = await S.client.call("core_course_get_categories", { "criteria[0][key]": "parent", "criteria[0][value]": parent, addsubcategories: 0 });
       return list.map(normCategory);
@@ -361,6 +364,7 @@
       },
       markRead: async function (id) { await net(120); st.notifications.forEach(function (n) { if (n.id === id) n.read = true; }); persist(); },
       markAllRead: async function () { await net(120); st.notifications.forEach(function (n) { n.read = true; }); persist(); },
+      markManyRead: async function (ids) { await net(120); st.notifications.forEach(function (n) { if (ids.indexOf(n.id) >= 0) n.read = true; }); persist(); },
       categories: async function (parent) {
         await net(350);
         return CATS.filter(function (c) { return c.parent === parent; }).map(function (c) {
@@ -439,6 +443,14 @@
       queueOp({ k: "read", id: id, label: n ? n.s : "Avviso" }, n ? n.r : false);
     },
     // Uno per uno, solo quelli mostrati: mai avvisi che l'utente non ha visto.
+    markManyRead: async function (ids) {
+      var box = readBox(), pending = pendingRequest();
+      PB.snap.notifs.list.forEach(function (n) {
+        if (!n.r && ids.indexOf(n.id) >= 0) box = C.enqueueOp(box, { k: "read", id: n.id, label: n.s }, false, pending ? pending.keys : []);
+      });
+      writeBox(box);
+      scheduleSend();
+    },
     markAllRead: async function () {
       var box = readBox(), pending = pendingRequest();
       PB.snap.notifs.list.forEach(function (n) {
@@ -489,6 +501,8 @@
     autoSync: settings.autoOpen !== false,
     loginReturn: settings.loginReturn !== false,
     autoSend: settings.autoSend !== false,
+    notif: Object.assign({ mode: "topic", unread: false, open: {} }, settings.notifView || {}, { q: "", more: {} }),
+    notesQuery: "", notesGit: { token: "", repo: "", busy: false, error: null },
     email: settings.email || "", emailSaved: false,
     seen: settings.seen || null,
     demoNotifAuth: settings.demoNotifAuth === undefined ? null : settings.demoNotifAuth,
@@ -507,7 +521,7 @@
   }
   resetStacks();
   function saveSettings() {
-    writeJSON(KEYS.settings, { program: S.program, reminders: S.reminders, autoReturn: S.autoReturn, autoOpen: S.autoSync, loginReturn: S.loginReturn, autoSend: S.autoSend, email: S.email, seen: S.seen, demoNotifAuth: S.demoNotifAuth });
+    writeJSON(KEYS.settings, { program: S.program, reminders: S.reminders, autoReturn: S.autoReturn, autoOpen: S.autoSync, loginReturn: S.loginReturn, autoSend: S.autoSend, notifView: { mode: S.notif.mode, unread: S.notif.unread, open: S.notif.open }, email: S.email, seen: S.seen, demoNotifAuth: S.demoNotifAuth });
   }
   function saveToggles() { writeJSON(KEYS.toggles, S.demo); }
   function saveUpdate() { writeJSON(KEYS.update, { available: S.update.available, lastCheck: S.update.lastCheck }); }
@@ -532,6 +546,7 @@
     armStanding();
     if (!incoming) maybeAutoSync();
     scheduleSend();
+    scheduleNotesSync(1500);
   }
   async function restoreSession() {
     var saved = readJSON(KEYS.phase, null);
@@ -834,11 +849,18 @@
   function autoVersion() {
     if (EMBEDDED || isStandalone()) return 0;
     var v = document.documentElement.getAttribute("data-statale-open-auto");
-    return v === "1" ? 1 : v === "2" ? 2 : v === "3" ? 3 : 0;
+    return v && /^[1-9]$/.test(v) ? Number(v) : 0;
   }
   function autoBridge() { return autoVersion() > 0; }
   // Script della versione 1: funziona, ma non riporta all'app dopo il login fatto dalla pagina di Ateneo.
   function autoOld() { return autoVersion() > 0 && autoVersion() < C.PONTE.userscriptVersion; }
+  // Cosa porta lo script nuovo, rispetto a quello installato.
+  function scriptNews() {
+    var v = autoVersion(), news = ["l'app legge tutti gli avvisi da leggere, non solo gli ultimi 50"];
+    if (v < 3) news.push("le modifiche (attività completate, avvisi letti) arrivano al portale da sole");
+    if (v < 2) news.push("dopo il login dalla pagina di Ateneo torni qui da solo");
+    return "Con la versione " + C.PONTE.userscriptVersion + " " + news.join(", ").replace(/, ([^,]*)$/, " e $1") + ".";
+  }
   // Ritorno dopo il login (script 2): l'app lascia allo script una richiesta di sola lettura (nessuna modifica, ritorno
   // nell'indirizzo). Quando entri dalla pagina di login di Ateneo e arrivi alla pagina iniziale o alla Dashboard, lo script
   // la usa e torni qui con i dati. La stessa richiesta resta valida finché non viene usata (o per 7 giorni).
@@ -944,7 +966,10 @@
       armAuto(r.text).then(function (ok) {
         if (ok) {
           writeJSON(KEYS.ponteReq, r.pending);
-          if (r.pending.keys.length) writeJSON(KEYS.ponteSent, { at: Date.now() });
+          if (r.pending.keys.length) {
+            var maxN = r.pending.keys.reduce(function (m, k) { return Math.max(m, Number(k.split("#")[1]) || 0); }, 0);
+            writeJSON(KEYS.ponteSent, { at: Date.now(), n: maxN });
+          }
           saveView();
           try { location.assign(url); return; } catch (e) { /* navigazione rifiutata: si riprova a mano */ }
         }
@@ -985,8 +1010,12 @@
   }
   // Modifiche nuove dall'ultimo invio (quelle già inviate e non applicate ripartono con la prossima modifica o a mano).
   function unsentChanges() {
-    var sent = readJSON(KEYS.ponteSent, null), since = sent && sent.at || 0;
-    return C.pendingOps(readBox()).filter(function (op) { return (op.at || 0) > since; }).length;
+    var sent = readJSON(KEYS.ponteSent, null), box = readBox();
+    // Un numero più alto di quelli assegnati viene da un elenco di modifiche azzerato (altro account): non vale più.
+    if (sent && typeof sent.n === "number" && sent.n > (box.seq || 0)) sent = null;
+    return C.pendingOps(box).filter(function (op) {
+      return sent && typeof sent.n === "number" ? (op.n || 0) > sent.n : (op.at || 0) > (sent && sent.at || 0);
+    }).length;
   }
   function scheduleSend(delay) {
     if (!canAutoSend() || !unsentChanges()) return;
@@ -1112,9 +1141,10 @@
     var prev = replace ? null : readJSON(KEYS.ponteSnap, null), pending = readJSON(KEYS.ponteReq, null);
     var box = replace ? C.emptyBox(snap.user.id) : readBox();
     if (box.uid && box.uid !== snap.user.id) box = C.emptyBox(snap.user.id);
+    if (!box.seq) removeKey(KEYS.ponteSent);
     box.uid = snap.user.id;
     var rec = C.reconcile({ box: box, snap: snap, pending: pending });
-    var merged = C.mergeSnapshot(prev, snap);
+    var merged = C.mergeSnapshot(prev, snap, rec.readOk);
     delete merged.res;
     var stored = saveSnap(merged);
     PB.snap = stored.snap;
@@ -1385,6 +1415,7 @@
           '<div class="cell empty">' + (firstLoad ? "Caricamento…" : "Nessuna scadenza imminente 🎉") + "</div>") +
         group("Ripresa rapida", S.data.courses.length ? S.data.courses.slice(0, 5).map(courseRow).join("") :
           '<div class="cell empty">' + (firstLoad ? "Caricamento…" : "Nessun corso trovato") + "</div>") +
+        notesHomeGroup() +
         group("Portale",
           openRow("Dashboard", "grid", BASE + "my/") +
           openRow("Percorso " + S.program.name + " (sito)", "stack", BASE + "course/index.php?categoryid=" + S.program.id) +
@@ -1413,6 +1444,8 @@
       function segBtn(k, label) { return '<button role="tab" aria-selected="' + (f === k) + '" class="' + (f === k ? "on" : "") + '" data-a="filter" data-k="' + k + '">' + label + "</button>"; }
       var body = '<div class="seg" role="tablist" style="margin-top:8px">' + segBtn("", "Tutto") + segBtn("lesson", "Lezioni") + segBtn("exercise", "Esercizi") + segBtn("etivity", "E-tivity") + "</div>" +
         '<label class="search">' + ic("search") + '<input id="q-course" type="search" data-search="course" placeholder="Cerca nel corso" autocomplete="off" value="' + esc(entry.q || "") + '"></label>' +
+        '<button class="note-link" data-a="push" data-v="note" data-id="' + entry.id + '" data-title="Note">' + ic("pencil") + "Le mie note del corso" +
+          (notesVisible(entry.id).length ? " (" + notesVisible(entry.id).length + ")" : "") + ic("chevR", ' class="chev"') + "</button>" +
         '<div id="results">' + VIEWS.course.results(entry) + "</div>";
       return { title: entry.title, trailing: safariButton(BASE + "course/view.php?id=" + entry.id, entry.title, "Apri il corso nel portale"), body: body, ptr: true };
     },
@@ -1434,15 +1467,24 @@
     },
 
     avvisi: function () {
-      var list = S.data.notifications;
-      var rows = list.map(function (n) {
-        return '<div class="swipe" data-swipe="' + n.id + '">' + (n.read ? "" : '<button class="swipe-action" data-a="mark-read" data-id="' + n.id + '">Letto</button>') +
-          '<button class="cell" data-a="notif" data-id="' + n.id + '"><span class="dot' + (n.read ? " off" : "") + '"></span><span class="cell-main">' +
-          '<span class="t' + (n.read ? "" : " b") + '">' + esc(n.subject) + "</span>" + (n.ctx ? '<span class="s clip">' + esc(n.ctx) + "</span>" : "") +
-          '<span class="s">' + esc(C.relative(n.t)) + (n.pending ? ' <span class="tag">da inviare</span>' : "") + "</span></span></button></div>";
-      }).join("");
-      var body = ptr() + (list.length ? group("", rows) + '<p class="hint">Scorri un avviso verso sinistra per segnarlo come letto.' +
-        (S.mode === "bridge" ? " Le modifiche arrivano al portale al prossimo aggiornamento." : "") + "</p>" :
+      var nv = S.notif, all = S.data.notifications;
+      var unreadShown = all.filter(function (n) { return !n.read; }).length;
+      // Il portale ha più avvisi da leggere di quelli letti: il ponte 1 ne legge solo 50 per volta,
+      // il ponte 2 tutti, salvo una pagina che non è arrivata.
+      var truncated = S.mode === "bridge" && PB.snap && S.data.unread > unreadShown, oldBridge = truncated && PB.snap.bv < 2;
+      function seg(k, label) { return '<button role="tab" aria-selected="' + (nv.mode === k) + '" class="' + (nv.mode === k ? "on" : "") + '" data-a="notif-mode" data-k="' + k + '">' + label + "</button>"; }
+      var controls = all.length ? '<div class="seg" role="tablist" style="margin-top:8px">' + seg("topic", "Per argomento") + seg("kind", "Per tipo") + seg("date", "Per data") + "</div>" +
+        '<div class="notif-bar"><button class="chip' + (nv.unread ? " on" : "") + '" data-a="notif-unread" aria-pressed="' + nv.unread + '">' + (nv.unread ? checkFilled() : "") + "Solo da leggere" + (S.data.unread ? " (" + S.data.unread + ")" : "") + "</button></div>" +
+        '<label class="search">' + ic("search") + '<input id="q-notif" type="search" data-search="notif" placeholder="Cerca negli avvisi" autocomplete="off" value="' + esc(nv.q) + '"></label>' : "";
+      var body = ptr() +
+        (oldBridge ? group("", '<div class="cell notice">' + ic("warn") + "<span>Il portale ha " + S.data.unread + " avvisi da leggere, l'app ne ha letti solo " + unreadShown +
+          ": il ponte che usi legge solo gli ultimi 50. Aggiorna lo script del ponte automatico (o il preferito) per vederli tutti.</span></div>" +
+          '<button class="cell accent-row" data-a="ponte-setup">' + ic("down") + '<span class="t">Aggiorna il ponte</span></button>') :
+        truncated ? noticeGroup("Il portale ha " + S.data.unread + " avvisi da leggere, l'app ne ha letti " + unreadShown +
+          (PB.snap.notifs.list.length >= C.PONTE.maxNotifs ? ": l'app ne tiene al massimo " + C.PONTE.maxNotifs + ", i più recenti." :
+            ": questa volta il portale non li ha dati tutti. Aggiorna dal portale per riprovare.")) : "") +
+        controls + (all.length ? '<div id="results">' + VIEWS.avvisi.results() + "</div>" + '<p class="hint">Scorri un avviso verso sinistra per segnarlo come letto. Argomenti e tipi esistono solo in questa app.' +
+          (S.mode === "bridge" ? " Le modifiche arrivano al portale " + (canAutoSend() ? "da sole, pochi secondi dopo." : "al prossimo aggiornamento.") : "") + "</p>" :
         '<div class="unavailable">' + ic("bellSlash") + '<div class="t">Nessun avviso</div><div>Annunci dei docenti, valutazioni e messaggi del forum compariranno qui.</div></div>');
       return { title: "Avvisi", ptr: true, swipe: true, body: body, trailing: S.data.unread ? '<button class="link" data-a="read-all">Segna tutti letti</button>' : "" };
     },
@@ -1453,6 +1495,9 @@
         group("", '<button class="cell" data-a="push" data-v="program" data-title="Percorso"><span class="t">Percorso</span><span class="cell-main"></span><span class="value">' + esc(S.program.name) + "</span>" + ic("chevR", ' class="chev"') + "</button>",
           "Il percorso mostrato nella scheda Corsi.") +
         (S.mode === "bridge" ? ponteSection() : credentialsSection()) + remindersSection() +
+        group("Note", '<button class="cell" data-a="push" data-v="note" data-title="Note"><span class="t">Le mie note</span><span class="cell-main"></span><span class="value">' + notesVisible(null).length + "</span>" + ic("chevR", ' class="chev"') + "</button>" +
+          (EMBEDDED ? "" : '<button class="cell" data-a="push" data-v="notegit" data-title="Note su GitHub"><span class="t">Salvataggio su GitHub</span><span class="cell-main"></span><span class="value">' + (gitCfg() ? "collegato" : "spento") + "</span>" + ic("chevR", ' class="chev"') + "</button>"),
+          "Visibili solo a te. Restano anche se esci dall'app.") +
         group("Portale", openRow("Apri il portale completo", "", BASE + "my/") + openRow("Profilo", "", BASE + "user/profile.php") + openRow("Messaggi", "", BASE + "message/index.php")) +
         aboutSection() +
         group("", '<button class="cell destructive centered" data-a="logout"><span class="t">' + (S.mode === "demo" ? "Esci dalla demo" : "Esci") + "</span></button>",
@@ -1482,6 +1527,357 @@
     var q = S.courseQuery.trim().toLowerCase();
     var list = S.data.courses.filter(function (c) { return !q || c.name.toLowerCase().indexOf(q) >= 0 || (c.short || "").toLowerCase().indexOf(q) >= 0; });
     return group("", list.length ? list.map(courseRow).join("") : '<div class="cell empty">' + (S.loading ? "Caricamento…" : "Nessun corso") + "</div>");
+  };
+
+  // ---------- Avvisi: per argomento, per tipo, per data ----------
+  var notifIdx = { key: null, idx: null };
+  function notifIndex() {
+    var bridge = S.mode === "bridge" && PB.snap;
+    var key = bridge ? "b" + PB.snap.sid : S.mode + ":" + S.data.courses.length + ":" + Object.keys(S.contents).length;
+    if (notifIdx.key !== key) notifIdx = { key: key, idx: bridge ? C.notifIndex(PB.snap.courses, PB.snap.contents) : C.notifIndex(S.data.courses, S.contents) };
+    return notifIdx.idx;
+  }
+  function notifRow(n) {
+    var kind = C.notifKind(n);
+    return '<div class="swipe" data-swipe="' + n.id + '">' + (n.read ? "" : '<button class="swipe-action" data-a="mark-read" data-id="' + n.id + '">Letto</button>') +
+      '<button class="cell" data-a="notif" data-id="' + n.id + '"><span class="dot' + (n.read ? " off" : "") + '"></span>' +
+      '<span class="ic kind" style="color:' + (n.read ? "var(--gray)" : "var(--accent)") + '" aria-label="' + esc(kind.label) + '">' + ic(kind.icon) + "</span>" +
+      '<span class="cell-main"><span class="t' + (n.read ? "" : " b") + '">' + esc(n.subject) + "</span>" + (n.ctx ? '<span class="s clip">' + esc(n.ctx) + "</span>" : "") +
+      '<span class="s">' + esc(C.relative(n.t)) + (n.pending ? ' <span class="tag">da inviare</span>' : "") + "</span></span></button></div>";
+  }
+  // Avvisi da mostrare (filtro «Solo da leggere» e ricerca).
+  function shownNotifications() {
+    var nv = S.notif, q = (nv.q || "").trim().toLowerCase(), idx = notifIndex();
+    return S.data.notifications.filter(function (n) {
+      if (nv.unread && n.read) return false;
+      if (!q) return true;
+      return (n.subject + " " + (n.ctx || "") + " " + C.notifTopic(n, idx).title).toLowerCase().indexOf(q) >= 0;
+    });
+  }
+  VIEWS.avvisi.results = function () {
+    var nv = S.notif, list = shownNotifications(), idx = notifIndex();
+    if (!list.length) return group("", '<div class="cell empty">' + (nv.q ? "Nessun avviso trovato" : "Nessun avviso da leggere 🎉") + "</div>");
+    var groups = [], byKey = {};
+    list.forEach(function (n) {
+      var g;
+      if (nv.mode === "date") { var day = C.startOfDay(n.t); g = { key: "d" + day, day: day }; }
+      else if (nv.mode === "kind") { var k = C.notifKind(n); g = { key: "k" + k.key, title: k.label }; }
+      else g = C.notifTopic(n, idx);
+      var cur = byKey[g.key];
+      if (!cur) { cur = byKey[g.key] = { key: g.key, title: g.day ? C.dayTitle(g.day) : g.title, courseId: g.courseId || null, items: [], unread: 0, last: 0 }; groups.push(cur); }
+      cur.items.push(n);
+      if (!n.read) cur.unread += 1;
+      cur.last = Math.max(cur.last, n.t);
+    });
+    // Per argomento e per tipo: prima i gruppi con avvisi da leggere, poi i più recenti. Per data: dal più recente.
+    if (nv.mode !== "date") groups.sort(function (a, b) { return (b.unread > 0) - (a.unread > 0) || b.last - a.last; });
+    // Per data si aprono gli ultimi 7 giorni (tutti con «Solo da leggere»): mille avvisi aperti insieme rallentano.
+    return groups.map(function (g, i) {
+      var open = nv.open[g.key] !== undefined ? nv.open[g.key] : nv.mode === "date" ? i < 7 || nv.unread || !!nv.q : g.unread > 0 || groups.length <= 3 || !!nv.q;
+      var limit = nv.more[g.key] || 30, shown = open ? g.items.slice(0, limit) : [];
+      var head = '<button class="gh gh-btn" data-a="notif-group" data-k="' + esc(g.key) + '" aria-expanded="' + open + '"><span class="gh-t">' + esc(g.title) + "</span>" +
+        (g.unread ? '<span class="pill">' + g.unread + "</span>" : '<span class="gh-n">' + g.items.length + "</span>") +
+        ic("chevR", ' class="chev" style="transform:rotate(' + (open ? 90 : 0) + 'deg)"') + "</button>";
+      var cells = shown.map(notifRow).join("") +
+        (open && g.items.length > shown.length ? '<button class="cell accent-row" data-a="notif-more" data-k="' + esc(g.key) + '"><span class="t">Mostra altri ' + Math.min(100, g.items.length - shown.length) + " di " + (g.items.length - shown.length) + "</span></button>" : "") +
+        (open && g.unread > 1 ? '<button class="cell accent-row" data-a="read-group" data-k="' + esc(g.key) + '">' + ic("calcheck") + '<span class="t">Segna come letti (' + g.unread + ")</span></button>" : "") +
+        (open && g.courseId ? '<button class="cell accent-row" data-a="push" data-v="course" data-id="' + g.courseId + '" data-title="' + esc(g.title) + '">' + ic("books") + '<span class="t">Apri il corso</span></button>' : "");
+      return '<section class="group">' + head + (cells ? '<div class="cells">' + cells + "</div>" : "") + "</section>";
+    }).join("");
+  };
+  // Gli avvisi da leggere di un gruppo, come mostrato ora.
+  function groupUnread(key) {
+    var nv = S.notif, idx = notifIndex();
+    return shownNotifications().filter(function (n) {
+      if (n.read) return false;
+      if (nv.mode === "date") return "d" + C.startOfDay(n.t) === key;
+      if (nv.mode === "kind") return "k" + C.notifKind(n).key === key;
+      return C.notifTopic(n, idx).key === key;
+    });
+  }
+  async function markGroupRead(key) {
+    var ids = groupUnread(key).map(function (n) { return n.id; });
+    if (!ids.length) return;
+    try { await api().markManyRead(ids); } catch (e) { /* come l'app: si riprova al prossimo aggiornamento */ }
+    await refreshNotifications(); render();
+    toast((ids.length === 1 ? "1 avviso segnato come letto" : ids.length + " avvisi segnati come letti") + (S.mode === "bridge" ? ": " + sendHint(false) : ""));
+  }
+
+  // ---------- Note personali ----------
+  // Restano su questo dispositivo (archivio del browser) e, se colleghi GitHub, in un tuo repository privato (note.json):
+  // così non si perdono e le ritrovi su altri dispositivi. Non passano mai dal portale né dal ponte.
+  var NOTES = { list: null, saveTimer: null, syncTimer: null, busy: false, again: false };
+  function notesAll() {
+    if (!NOTES.list) NOTES.list = C.sanitizeNotes((readJSON(KEYS.notes, null) || {}).notes || []);
+    return NOTES.list;
+  }
+  function notesWrite() {
+    clearTimeout(NOTES.saveTimer); NOTES.saveTimer = null;
+    writeJSON(KEYS.notes, { v: 1, notes: notesAll() });
+  }
+  function notesChanged(soon) {
+    clearTimeout(NOTES.saveTimer);
+    if (soon) NOTES.saveTimer = setTimeout(notesWrite, 500); else notesWrite();
+    scheduleNotesSync(4000);
+  }
+  function notesVisible(course) {
+    return notesAll().filter(function (n) { return !n.deleted && (course == null || n.course === course); });
+  }
+  function noteById(id) { return notesAll().filter(function (n) { return n.id === id && !n.deleted; })[0] || null; }
+  function noteTitle(n) { return (n.title || "").trim() || ((n.body || "").trim().split("\n")[0] || "").slice(0, 80) || "Nota senza titolo"; }
+  function courseName(id) {
+    var c = S.data.courses.filter(function (x) { return x.id === id; })[0];
+    return c ? c.name : "Corso " + id;
+  }
+  function newNote(course) {
+    var now = Date.now(), n = { id: C.randomId(12), title: "", body: "", course: course || null, created: now, updated: now };
+    NOTES.list = [n].concat(notesAll());
+    notesChanged(false);
+    return n;
+  }
+  function noteField(id) { var el = document.getElementById(id); return el ? el.value : ""; }
+  function editNote(id, patch, soon) {
+    var n = noteById(id), top = current();
+    var open = top && top.v === "nota" && top.key === id;
+    if (!n) {
+      // Eliminata su un altro dispositivo mentre la scrivevi qui: torna, con quello che c'è nei campi.
+      if (!open) return;
+      var pick = document.querySelector("[data-note-course]");
+      n = { id: id, title: noteField("note-title"), body: noteField("note-body"), course: pick && pick.value ? Number(pick.value) : null, created: Date.now() };
+      NOTES.list = [n].concat(notesAll().filter(function (x) { return x.id !== id; }));
+      top.gone = false;
+    }
+    Object.assign(n, patch, { updated: Date.now() });
+    if (open) top.base = n.updated;
+    notesChanged(soon);
+  }
+  function typing() {
+    var a = document.activeElement;
+    return !!(a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA"));
+  }
+  // Dopo una sincronizzazione (o una modifica da un'altra scheda): la nota aperta mostra la versione più recente.
+  // Una modifica fatta qui avrebbe una data più recente e avrebbe vinto, quindi quella arrivata si può mostrare.
+  // Vero se ha ridisegnato la vista.
+  function refreshOpenNote() {
+    var top = S.phase === "app" && !S.alert ? current() : null;
+    if (!top) return false;
+    if (top.v === "note" || top.v === "home") { if (typing()) return false; render(); return true; }
+    if (top.v !== "nota") return false;
+    var n = noteById(top.key);
+    if (!n) {
+      if (!typing()) { render(); return true; }
+      if (!top.gone) { top.gone = true; toast("Nota eliminata su un altro dispositivo: se continui a scrivere, torna"); }
+      return false;
+    }
+    if (n.updated === top.base) return false;
+    if (!typing()) { render(); return true; }
+    [["note-title", n.title], ["note-body", n.body]].forEach(function (p) {
+      var el = document.getElementById(p[0]);
+      if (!el || el.value === p[1]) return;
+      var focused = document.activeElement === el, a = el.selectionStart, z = el.selectionEnd;
+      el.value = p[1];
+      if (focused) { try { el.setSelectionRange(Math.min(a, p[1].length), Math.min(z, p[1].length)); } catch (e) { /* campo senza selezione */ } }
+    });
+    top.base = n.updated;
+    toast("Nota aggiornata da un altro dispositivo");
+    return false;
+  }
+  function deleteNote(id) {
+    NOTES.list = notesAll().map(function (n) { return n.id === id ? { id: id, deleted: true, updated: Date.now() } : n; });
+    notesChanged(false);
+  }
+  function noteRow(n) {
+    var snippet = (n.body || "").replace(/\s+/g, " ").trim();
+    if (!(n.title || "").trim()) snippet = snippet.slice(noteTitle(n).length).trim();
+    return '<button class="cell" data-a="note-open" data-k="' + esc(n.id) + '"><span class="ic" style="color:var(--orange)">' + ic("pencil") + '</span><span class="cell-main">' +
+      '<span class="t b clip">' + esc(noteTitle(n)) + "</span>" + (snippet ? '<span class="s clip">' + esc(snippet.slice(0, 140)) + "</span>" : "") +
+      '<span class="s">' + esc(C.relative(n.updated)) + (n.course ? " · " + esc(courseName(n.course)) : "") + "</span></span>" + ic("chevR", ' class="chev"') + "</button>";
+  }
+  function notesHomeGroup() {
+    var list = notesVisible(null);
+    return group("Le mie note", list.slice(0, 3).map(noteRow).join("") +
+      (list.length > 3 ? '<button class="cell accent-row" data-a="push" data-v="note" data-title="Note"><span class="t">Tutte le note (' + list.length + ")</span></button>" : "") +
+      '<button class="cell accent-row" data-a="note-new">' + ic("pencil") + '<span class="t">Nuova nota</span></button>',
+      list.length ? "" : "Appunti solo tuoi: restano in questa app" + (gitCfg() ? " e nel tuo repository GitHub privato." : " (e, se colleghi GitHub in Altro, in un tuo repository privato)."));
+  }
+
+  // --- Sincronizzazione con un repository GitHub privato (file note.json) ---
+  function gitCfg() { var g = readJSON(KEYS.notesGit, null); return g && g.token && g.repo ? g : null; }
+  function gitStatus() {
+    var g = gitCfg();
+    if (!g) return "Solo su questo dispositivo";
+    if (NOTES.busy) return "Sincronizzazione con GitHub…";
+    if (g.error) return "GitHub: " + g.error;
+    return g.syncedAt ? "Su GitHub (" + g.repo + ") · sincronizzate " + C.relative(g.syncedAt) : "Su GitHub (" + g.repo + ")";
+  }
+  function b64utf8(text) {
+    var bytes = new TextEncoder().encode(text), bin = "";
+    for (var i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+  function utf8b64(b64) {
+    var bin = atob(String(b64 || "").replace(/\s/g, "")), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+  async function github(method, path, token, body) {
+    var headers = { Accept: "application/vnd.github+json", Authorization: "Bearer " + token, "X-GitHub-Api-Version": "2022-11-28" };
+    if (body) headers["Content-Type"] = "application/json";
+    var r = await fetch("https://api.github.com" + path, { method: method, headers: headers, body: body ? JSON.stringify(body) : undefined, cache: "no-store" });
+    var data = null;
+    try { data = await r.json(); } catch (e) { data = null; }
+    return { status: r.status, data: data };
+  }
+  function gitError(status) {
+    if (status === 401) return "la chiave non è valida o è scaduta: creane una nuova.";
+    if (status === 403) return "la chiave non può scrivere nel repository: serve il permesso «Contents: Read and write» su quel repository.";
+    if (status === 404) return "repository non trovato, oppure la chiave non lo può vedere.";
+    return "risposta inattesa (" + status + "): riprovo più tardi.";
+  }
+  function scheduleNotesSync(delay) {
+    if (!gitCfg() || EMBEDDED) return;
+    clearTimeout(NOTES.syncTimer);
+    NOTES.syncTimer = setTimeout(function () { syncNotes(false); }, delay || 0);
+  }
+  function showNotesStatus() {
+    var el = document.getElementById("note-sync");
+    var active = document.activeElement;
+    if (el) el.textContent = gitStatus();
+    // Mentre scrivi non si ridisegna (cursore e tastiera restano dove sono).
+    else if (!(active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA"))) render();
+  }
+  async function syncNotes(manual) {
+    var g = gitCfg();
+    if (!g || EMBEDDED) return;
+    // Una modifica mentre la sincronizzazione è in corso: si ripete appena finisce.
+    if (NOTES.busy) { NOTES.again = true; return; }
+    if (navigator.onLine === false) { if (manual) toast("Sei offline: le note si sincronizzano quando torna la connessione"); return; }
+    NOTES.busy = true; NOTES.again = false; showNotesStatus();
+    if (NOTES.saveTimer) notesWrite();
+    var path = "/repos/" + g.repo + "/contents/note.json", error = null, ok = false, retry = 0;
+    try {
+      for (var attempt = 0; attempt < 3 && !ok && !error; attempt++) {
+        // Il file è cambiato nel frattempo (un altro dispositivo): si aspetta un attimo, si rilegge e si riprova.
+        if (attempt) await new Promise(function (r) { setTimeout(r, 500 * attempt); });
+        var got = await github("GET", path, g.token), remote = [], sha = null, now = Date.now();
+        if (got.status === 200 && got.data && got.data.content) {
+          sha = got.data.sha;
+          try { remote = (JSON.parse(utf8b64(got.data.content)) || {}).notes || []; } catch (e) { remote = []; }
+        } else if (got.status !== 404) { error = gitError(got.status); break; }
+        var merged = C.mergeNotes(notesAll(), remote, now);
+        NOTES.list = merged; notesWrite();
+        // Già uguale su GitHub: niente da scrivere.
+        if (sha && JSON.stringify(C.mergeNotes(remote, [], now)) === JSON.stringify(merged)) { ok = true; break; }
+        var put = await github("PUT", path, g.token, {
+          message: "Note aggiornate dall'app Statale Open", sha: sha || undefined,
+          content: b64utf8(JSON.stringify({ app: "statale-open-note", v: 1, notes: merged }, null, 1) + "\n")
+        });
+        if (put.status === 200 || put.status === 201) ok = true;
+        else if (put.status !== 409 && put.status !== 422) error = gitError(put.status);
+      }
+      if (!ok && !error) { error = "il file su GitHub è cambiato più volte mentre lo aggiornavo: riprovo tra poco."; retry = 30000; }
+    } catch (e) {
+      error = "GitHub non risponde: riprovo più tardi.";
+      retry = 60000;
+    }
+    var cur = gitCfg();
+    if (cur && cur.token === g.token) {
+      cur.error = error;
+      if (ok) cur.syncedAt = Date.now();
+      writeJSON(KEYS.notesGit, cur);
+    }
+    NOTES.busy = false;
+    if (!refreshOpenNote()) showNotesStatus();
+    if (manual) toast(error ? "Note non sincronizzate: " + error : "Note sincronizzate con GitHub ✓");
+    if (NOTES.again && !error) { NOTES.again = false; scheduleNotesSync(1000); }
+    else if (retry) scheduleNotesSync(retry);
+  }
+  async function linkGitHub() {
+    var f = S.notesGit, tokenField = document.getElementById("git-token"), repoField = document.getElementById("git-repo");
+    // Quello che c'è nei campi (anche il nome proposto, se non l'hai cambiato).
+    if (tokenField) f.token = tokenField.value;
+    if (repoField) f.repo = repoField.value;
+    var token = (f.token || "").trim(), repo = (f.repo || APP.repo.split("/")[0] + "/statale-open-note").trim().replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "").replace(/\/+$/, "");
+    if (!/^(github_pat_|ghp_)[A-Za-z0-9_]{20,}$/.test(token)) { f.error = "La chiave inizia con «github_pat_»: copiala intera dalla pagina di GitHub."; render(); return; }
+    if (!/^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/.test(repo)) { f.error = "Scrivi il repository come nome-utente/nome-repository, per esempio LeoGen02/statale-open-note."; render(); return; }
+    f.busy = true; f.error = null; render();
+    try {
+      var r = await github("GET", "/repos/" + repo, token);
+      if (r.status !== 200) { f.error = "GitHub: " + gitError(r.status); }
+      else if (!r.data || r.data.private !== true) { f.error = "Il repository è pubblico: le note sarebbero visibili a tutti. Rendilo privato (Settings → Change visibility) e riprova."; }
+      else {
+        writeJSON(KEYS.notesGit, { token: token, repo: r.data.full_name || repo, syncedAt: 0, error: null });
+        S.notesGit = { token: "", repo: "", busy: false, error: null };
+        f = null;
+        await syncNotes(true);
+        render();
+        return;
+      }
+    } catch (e) {
+      f.error = "GitHub non risponde: controlla la connessione e riprova.";
+    }
+    if (f) { f.busy = false; render(); }
+  }
+
+  // Elenco delle note (tutte o di un corso).
+  VIEWS.note = function (entry) {
+    var course = entry.id || null, q = (S.notesQuery || "").trim().toLowerCase();
+    var list = notesVisible(course).filter(function (n) { return !q || (n.title + " " + n.body).toLowerCase().indexOf(q) >= 0; });
+    var body = group("", '<div class="cell"><span class="ic" style="color:' + (gitCfg() && !(gitCfg() || {}).error ? "var(--green)" : "var(--gray)") + '">' + ic(gitCfg() ? "calcheck" : "doc") + "</span>" +
+        '<span class="cell-main"><span class="s" id="note-sync">' + esc(gitStatus()) + "</span></span>" +
+        (gitCfg() ? '<button class="link" data-a="notes-sync">Sincronizza</button>' : "") + "</div>" +
+        (gitCfg() || EMBEDDED ? "" : '<button class="cell accent-row" data-a="push" data-v="notegit" data-title="Note su GitHub">' + ic("link") + '<span class="t">Salva le note su GitHub (privato)</span></button>')) +
+      '<label class="search">' + ic("search") + '<input id="q-notes" type="search" data-search="notes" placeholder="Cerca nelle note" autocomplete="off" value="' + esc(S.notesQuery || "") + '"></label>' +
+      '<div id="results">' + (list.length ? group("", list.map(noteRow).join("")) : group("", '<div class="cell empty">' + (q ? "Nessuna nota trovata" : "Nessuna nota" + (course ? " per questo corso" : "")) + "</div>")) + "</div>" +
+      '<div class="group"><button class="btn-primary" data-a="note-new"' + (course ? ' data-c="' + course + '"' : "") + ">" + ic("pencil") + "Nuova nota</button></div>" +
+      '<p class="hint">Le note sono solo tue: non vanno sul portale. ' + (gitCfg() ? "Una copia è nel tuo repository GitHub privato." : "Restano in questa app finché non colleghi GitHub.") + "</p>";
+    return { title: course ? "Note · " + courseName(course) : "Note", body: body,
+      trailing: '<button class="link" aria-label="Nuova nota" data-a="note-new"' + (course ? ' data-c="' + course + '"' : "") + ">" + ic("pencil") + "</button>" };
+  };
+  // Una nota: si salva mentre scrivi.
+  VIEWS.nota = function (entry) {
+    var n = noteById(entry.key);
+    if (!n) return { title: "Nota", body: group("", '<div class="cell empty">Nota cancellata.</div>') };
+    entry.base = n.updated;
+    var options = '<option value="">Nessun corso</option>' + S.data.courses.map(function (c) {
+      return '<option value="' + c.id + '"' + (n.course === c.id ? " selected" : "") + ">" + esc(c.name) + "</option>";
+    }).join("") + (n.course && !S.data.courses.some(function (c) { return c.id === n.course; }) ? '<option value="' + n.course + '" selected>Corso ' + n.course + "</option>" : "");
+    var body = group("", '<div class="cell"><input class="field note-title" id="note-title" data-note="title" placeholder="Titolo" maxlength="200" value="' + esc(n.title) + '"></div>' +
+        '<div class="cell"><textarea class="note-body" id="note-body" data-note="body" placeholder="Scrivi qui la tua nota…" maxlength="20000">' + esc(n.body) + "</textarea></div>") +
+      group("Corso", '<div class="cell"><select class="pick wide" data-note-course="1" aria-label="Corso della nota">' + options + "</select></div>") +
+      group("", '<div class="cell"><span class="cell-main"><span class="s">Creata ' + esc(fmtShort.format(n.created)) + " · modificata " + esc(C.relative(n.updated)) + '</span><span class="s" id="note-sync">' + esc(gitStatus()) + "</span></span></div>" +
+        (n.course ? '<button class="cell accent-row" data-a="push" data-v="course" data-id="' + n.course + '" data-title="' + esc(courseName(n.course)) + '">' + ic("books") + '<span class="t">Apri il corso</span></button>' : "")) +
+      group("", '<button class="cell destructive centered" data-a="note-delete" data-k="' + esc(n.id) + '"><span class="t">Elimina la nota</span></button>');
+    return { title: noteTitle(n), body: body };
+  };
+  // Collegamento a un repository GitHub privato.
+  VIEWS.notegit = function () {
+    var g = gitCfg(), f = S.notesGit, owner = APP.repo.split("/")[0];
+    var body;
+    if (g) {
+      body = group("Collegato", labeled("Repository", g.repo) + '<div class="cell"><span class="cell-main"><span class="s" id="note-sync">' + esc(gitStatus()) + "</span></span></div>" +
+          '<button class="cell accent-row" data-a="notes-sync">' + ic("refresh") + '<span class="t">Sincronizza ora</span></button>' +
+          extRow("Apri il repository su GitHub", "https://github.com/" + g.repo, "globe"),
+          "Le note sono nel file note.json del repository. Ogni modifica fatta qui arriva lì dopo pochi secondi; le modifiche fatte da un altro dispositivo arrivano qui all'apertura.") +
+        group("", '<button class="cell destructive centered" data-a="notes-unlink"><span class="t">Scollega GitHub da questo dispositivo</span></button>',
+          "Le note restano qui e su GitHub; la chiave viene tolta da questo dispositivo.");
+    } else {
+      body = group("", '<div class="cell"><span class="s">Per non perdere le note e ritrovarle su altri dispositivi, l\'app le salva in un tuo repository GitHub <b>privato</b>, visibile solo a te. Serve una volta sola, da GitHub (anche dal telefono).</span></div>') +
+        group("1 · Crea il repository privato", '<div class="cell"><span class="s">Nome consigliato: <b>statale-open-note</b>, visibilità <b>Private</b>.</span></div>' +
+          extRow("Crea il repository su GitHub", "https://github.com/new?name=statale-open-note&visibility=private&description=" + encodeURIComponent("Note personali di Statale Open"), "globe")) +
+        group("2 · Crea una chiave solo per quel repository", '<div class="cell"><ol class="steps">' +
+          "<li>Apri la pagina qui sotto (chiave «fine-grained»).</li>" +
+          "<li><b>Repository access</b>: «Only select repositories» → <b>statale-open-note</b>.</li>" +
+          "<li><b>Permissions</b> → Repository permissions → <b>Contents</b>: «Read and write».</li>" +
+          "<li>Tocca <b>Generate token</b> e copia la chiave (inizia con github_pat_).</li></ol></div>" +
+          extRow("Crea la chiave su GitHub", "https://github.com/settings/personal-access-tokens/new?name=" + encodeURIComponent("Statale Open note") + "&description=" + encodeURIComponent("Note personali dell'app Statale Open") + "&contents=write", "key"),
+          "La chiave resta su questo dispositivo e va solo a GitHub. Può leggere e scrivere soltanto quel repository.") +
+        group("3 · Collega", '<div class="cell"><input class="field code" id="git-repo" data-git="repo" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="' + esc(owner) + '/statale-open-note" value="' + esc(f.repo || owner + "/statale-open-note") + '"></div>' +
+          '<div class="cell"><input class="field code" id="git-token" data-git="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…" value="' + esc(f.token || "") + '"></div>') +
+        (f.error ? noticeGroup(f.error) : "") +
+        '<div class="group"><button class="btn-primary" data-a="notes-link"' + (f.busy ? " disabled" : "") + ">" + (f.busy ? spinner() + "Controllo…" : ic("link") + "Collega e sincronizza") + "</button></div>";
+    }
+    return { title: "Note su GitHub", body: body };
   };
 
   // CategoryBrowserView
@@ -1546,8 +1942,7 @@
           "</span></span></div>" +
         '<button class="cell accent-row" data-a="ponte-setup">' + ic("link") + '<span class="t">Istruzioni e preferito di riserva</span></button>' : "") +
       (autoOld() ? '<button class="cell accent-row" data-a="ponte-setup">' + ic("down") + '<span class="cell-main"><span class="t">Aggiorna lo script del ponte automatico</span>' +
-          "<span class=\"s\">Con la versione " + C.PONTE.userscriptVersion + " le modifiche (attività completate, avvisi letti) arrivano al portale da sole" +
-          (autoVersion() < 2 ? " e dopo il login dalla pagina di Ateneo torni qui da solo" : "") + ".</span></span>" + ic("chevR", ' class="chev"') + "</button>" : "") +
+          "<span class=\"s\">" + esc(scriptNews()) + "</span></span>" + ic("chevR", ' class="chev"') + "</button>" : "") +
       (!stuck && canAutoSend() && autoSendBlocked() && C.pendingOps(readBox()).length ? '<div class="cell notice">' + ic("warn") +
         "<span>Invio automatico in pausa: l'ultimo giro sul portale non è tornato. Tocca «Aggiorna dal portale» per inviare le modifiche.</span></div>" : "") +
       (!stuck && autoPaused() ? '<div class="cell notice">' + ic("warn") + "<span>Aggiornamento automatico all'apertura in pausa: l'ultimo giro non è tornato con i dati. Tocca «Aggiorna dal portale» per riprovare.</span></div>" : "") +
@@ -1641,8 +2036,7 @@
         '<div class="group"><button class="btn-primary" data-a="sync-now"' + (S.ponte.starting ? " disabled" : "") + ">" +
           (S.ponte.starting ? spinner() + "Apro il portale…" : ic(first ? "personKey" : "globe") + (first ? "Accedi" : "Aggiorna dal portale")) + "</button></div>" +
         (autoOld() ? group("Aggiorna lo script (versione " + C.PONTE.userscriptVersion + ")",
-          text("Con la nuova versione le modifiche che fai qui (attività completate, avvisi letti) arrivano al portale da sole, senza conferme sul portale" +
-            (autoVersion() < 2 ? ", e quando entri dalla pagina di login di Ateneo torni qui da solo con i dati" : "") + ". Tocca il pulsante qui sotto: si apre il testo dello script. " +
+          text(esc(scriptNews()) + " Tocca il pulsante qui sotto: si apre il testo dello script. " +
             "Lì tocca il pulsante a sinistra dell'indirizzo → <b>Userscripts</b>: il riquadro verde dice «Userscript Installed» (è normale, il nome è lo stesso). " +
             "Tocca <b>Tap to re-install</b> → <b>Install</b>: la versione nuova prende il posto della vecchia. Poi torna a questa scheda.") +
           '<a class="cell accent-row" href="' + esc(appBase() + C.PONTE.userscript) + '" target="_blank" rel="noopener" data-a="script-opened">' + ic("down") + '<span class="t">Apri lo script nuovo</span></a>',
@@ -2009,7 +2403,7 @@
       return '<button class="tab' + (S.tab === t.key ? " on" : "") + '" data-a="tab" data-tab="' + t.key + '" aria-label="' + t.label + '">' + ic(t.icon) + t.label + badge + "</button>";
     }).join("") + "</nav>";
     return { html: '<div class="screen">' + nav + seg + '<main class="content" id="content">' + view.body + "</main></div>" + tabbar + sheetHtml(), view: view,
-      key: S.tab + ":" + st.map(function (e) { return e.v + (e.id || ""); }).join("/") + (entry.v === "corsi" ? ":" + S.scope : "") };
+      key: S.tab + ":" + st.map(function (e) { return e.v + (e.id || "") + (e.key || ""); }).join("/") + (entry.v === "corsi" ? ":" + S.scope : "") };
   }
 
   function render() {
@@ -2218,6 +2612,33 @@
         if (nr) markRead(nr);
         break;
       case "read-all": markAllRead(); break;
+      case "notif-mode": S.notif.mode = el.dataset.k; S.notif.more = {}; saveSettings(); render(); break;
+      case "notif-unread": S.notif.unread = !S.notif.unread; saveSettings(); render(); break;
+      case "notif-group":
+        var ok = el.getAttribute("aria-expanded") === "true";
+        S.notif.open[el.dataset.k] = !ok;
+        // Si ricordano solo le ultime scelte (gli argomenti cambiano nel tempo).
+        var keys = Object.keys(S.notif.open);
+        if (keys.length > 80) keys.slice(0, keys.length - 80).forEach(function (k) { delete S.notif.open[k]; });
+        saveSettings(); render(); break;
+      case "notif-more": S.notif.more[el.dataset.k] = (S.notif.more[el.dataset.k] || 30) + 100; render(); break;
+      case "read-group": markGroupRead(el.dataset.k); break;
+      // Note
+      case "note-new":
+        var nn = newNote(Number(el.dataset.c) || null);
+        st.push({ v: "nota", key: nn.id, title: "Nuova nota" }); render();
+        setTimeout(function () { var t = document.getElementById("note-title"); if (t) t.focus(); }, 60);
+        break;
+      case "note-open": st.push({ v: "nota", key: el.dataset.k, title: "Nota" }); render(); break;
+      case "note-delete":
+        showAlert("Eliminare la nota?", "La nota viene tolta da questa app" + (gitCfg() ? " e dal repository GitHub." : "."), [
+          { label: "Annulla", role: "cancel" },
+          { label: "Elimina", role: "destructive", act: function () { deleteNote(el.dataset.k); if (st.length > 1) st.pop(); render(); toast("Nota eliminata"); } }
+        ]);
+        break;
+      case "notes-sync": syncNotes(true); break;
+      case "notes-link": linkGitHub(); break;
+      case "notes-unlink": removeKey(KEYS.notesGit); render(); toast("GitHub scollegato: le note restano qui"); break;
       // Altro
       case "pick-program": S.program = { id: Number(el.dataset.id), name: el.dataset.name }; saveSettings(); render(); break;
       case "reset-program": S.program = { id: DEFAULT_PROGRAM.id, name: DEFAULT_PROGRAM.name }; saveSettings(); render(); break;
@@ -2329,6 +2750,27 @@
       if (S.emailSaved) { S.emailSaved = false; var lbl = document.getElementById("save-email-label"); if (lbl) lbl.textContent = "Salva email"; }
       return;
     }
+    if (el.dataset.note) {
+      var entry = current();
+      if (entry && entry.v === "nota") {
+        var patch = {}; patch[el.dataset.note] = el.value;
+        editNote(entry.key, patch, true);
+      }
+      return;
+    }
+    if (el.dataset.git) { S.notesGit[el.dataset.git] = el.value; return; }
+    if (el.dataset.search === "notes") {
+      S.notesQuery = el.value;
+      var notesRes = document.getElementById("results");
+      if (notesRes) { var tmp = document.createElement("div"); tmp.innerHTML = VIEWS.note(current()).body; var fresh = tmp.querySelector("#results"); if (fresh) notesRes.innerHTML = fresh.innerHTML; }
+      return;
+    }
+    if (el.dataset.search === "notif") {
+      S.notif.q = el.value;
+      var nres = document.getElementById("results");
+      if (nres) { nres.innerHTML = VIEWS.avvisi.results(); attachSwipes(); attachLongPress(); }
+      return;
+    }
     if (el.dataset.search) {
       if (el.dataset.search === "courses") S.courseQuery = el.value; else current().q = el.value;
       var res = document.getElementById("results");
@@ -2341,6 +2783,10 @@
     if (el.id === "assign-file" && el.files && el.files.length) { pendingFile = el.files[0].name; return; }
     if (el.id === "ponte-file" && el.files && el.files.length) { readFile(el.files[0]); return; }
     if (el.dataset.demoSelect) { S.demo[el.dataset.demoSelect] = el.value; saveToggles(); render(); }
+    if (el.dataset.noteCourse) {
+      var ne = current();
+      if (ne && ne.v === "nota") { editNote(ne.key, { course: Number(el.value) || null }, false); render(); }
+    }
   });
 
   // Ritorno in primo piano: aggiorna se i dati hanno più di 5 minuti (MainTabView) e ricontrolla gli aggiornamenti.
@@ -2348,6 +2794,9 @@
     // In secondo piano lo script potrebbe aver usato o perso la richiesta per il ritorno dopo il login: al ritorno si riconsegna.
     if (document.visibilityState !== "visible") { document.documentElement.removeAttribute("data-statale-open-standing"); return; }
     standingPaused = false;
+    // Note: all'apertura arrivano le modifiche fatte da un altro dispositivo.
+    var ng = gitCfg();
+    if (ng && !(Date.now() - (ng.syncedAt || 0) < 60e3)) scheduleNotesSync(500);
     if (S.phase === "ponte" && S.ponte.scriptAt && Date.now() - S.ponte.scriptAt < 30 * 60e3 && autoVersion() < C.PONTE.userscriptVersion) {
       S.ponte.scriptAt = 0;
       location.reload();
@@ -2394,6 +2843,11 @@
       return;
     }
     if (ev.key === KEYS.ponteNoManual) noManual = null;
+    if (ev.key === KEYS.notes) {
+      NOTES.list = null;
+      refreshOpenNote();
+      return;
+    }
     if (!ev.key || ev.key === KEYS.ponteStanding || ev.key.indexOf("so.ponte.") !== 0 || S.mode !== "bridge" || S.phase !== "app") return;
     if (loadSnap()) { applyBridge(); render(); }
   });

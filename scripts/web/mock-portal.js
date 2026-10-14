@@ -18,7 +18,8 @@ function createPortal() {
     completion: { 555: 0, 556: 0, 557: 1, 561: 0 },
     manual: { 556: true, 557: true },
     notifications: [
-      { id: 1, subject: "Nuovo annuncio: <b>orario</b> lezioni", timecreated: now - 600, read: false, contexturl: ORIGIN + "/mod/forum/discuss.php?d=1", contexturlname: "Annunci" },
+      { id: 1, subject: "Nuovo annuncio: <b>orario</b> lezioni", timecreated: now - 600, read: false, contexturl: ORIGIN + "/mod/forum/discuss.php?d=1", contexturlname: "Annunci",
+        component: "mod_forum", eventtype: "posts", customdata: JSON.stringify({ cmid: 560, instance: 7, discussionid: 1, postid: 11, courseid: 101 }) },
       { id: 2, subject: "Voto pubblicato", timecreated: now - 90000, read: true, contexturl: ORIGIN + "/grade/report/user/index.php?id=101", contexturlname: "Fondamenti" },
       { id: 3, subject: "Link esterno", timecreated: now - 200000, read: false, contexturl: "https://esterno.example/pagina", contexturlname: "Esterno" }
     ],
@@ -82,7 +83,13 @@ function createPortal() {
         return { data: { events: events(), firstid: 9001, lastid: 9003 } };
       case "message_popup_get_popup_notifications":
         if (args.useridto !== st.userId) return { error: { message: "Utente non valido", errorcode: "invaliduser" } };
-        return { data: { notifications: st.notifications.slice().sort((a, b) => b.timecreated - a.timecreated), unreadcount: st.notifications.filter((n) => !n.read).length } };
+        // Pagina che il portale non riesce a dare (prova degli avvisi letti solo in parte).
+        if (st.notifFailFrom != null && (args.offset || 0) >= st.notifFailFrom) return { error: { message: "Errore di lettura dal database", errorcode: "dmlreadexception" } };
+      {
+        const all = st.notifications.slice().sort((a, b) => b.timecreated - a.timecreated);
+        const page = args.limit > 0 ? all.slice(args.offset || 0, (args.offset || 0) + args.limit) : all.slice(args.offset || 0);
+        return { data: { notifications: page, unreadcount: st.notifications.filter((n) => !n.read).length } };
+      }
       case "core_user_get_users_by_field":
         return { data: args.values.indexOf(String(st.userId)) >= 0 ? [st.user] : [] };
       case "core_courseformat_get_state":

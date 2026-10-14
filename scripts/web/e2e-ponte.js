@@ -20,6 +20,8 @@ const USERSCRIPT_V1 = fs.readFileSync(path.join(DOCS, "ponte/statale-open-1.user
 
 let portal = createPortal();
 let tamper = false;
+// GitHub simulato per le note: un repository privato con il file note.json.
+const gh = { private: true, file: null, sha: 0, puts: 0, token: "github_pat_" + "x".repeat(40), putDelay: 0, conflict: false, inflight: 0 };
 const treePages = () => portal.st.pages.filter((p) => p.startsWith("/course/index.php")).length;
 
 async function setup(context) {
@@ -45,8 +47,27 @@ async function setup(context) {
     return route.fulfill({ status: r.status, headers: r.headers, body: r.body });
   });
   await context.route(SSO + "**", (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: portal.ssoPage() }));
-  await context.route("https://api.github.com/**", (route) => route.fulfill({ status: 200, headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
-    body: JSON.stringify({ tag_name: "v" + C.PONTE.version + ".0.0-test", html_url: "https://github.com/LeoGen02/LaStataleOpen-App/releases" }) }));
+  await context.route("https://api.github.com/**", async (route) => {
+    const req = route.request(), u = new URL(req.url());
+    const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, X-GitHub-Api-Version", "Access-Control-Allow-Methods": "GET, PUT, OPTIONS", "Content-Type": "application/json" };
+    const reply = (status, body) => route.fulfill({ status, headers: cors, body: JSON.stringify(body) });
+    if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors, body: "" });
+    if (u.pathname.startsWith("/repos/LeoGen02/statale-open-note")) {
+      if (req.headers().authorization !== "Bearer " + gh.token) return reply(401, { message: "Bad credentials" });
+      if (u.pathname === "/repos/LeoGen02/statale-open-note") return reply(200, { full_name: "LeoGen02/statale-open-note", private: gh.private });
+      if (u.pathname === "/repos/LeoGen02/statale-open-note/contents/note.json") {
+        if (req.method() === "GET") return gh.file === null ? reply(404, { message: "Not Found" }) : reply(200, { sha: "s" + gh.sha, content: Buffer.from(gh.file).toString("base64").replace(/(.{60})/g, "$1\n") });
+        const body = JSON.parse(req.postData());
+        // Rete lenta: la scrittura arriva dopo un po'.
+        if (gh.putDelay) { gh.inflight += 1; await new Promise((r) => setTimeout(r, gh.putDelay)); gh.inflight -= 1; }
+        if (gh.conflict || (gh.file === null && body.sha) || (gh.file !== null && body.sha !== "s" + gh.sha)) return reply(409, { message: "sha does not match" });
+        gh.file = Buffer.from(body.content, "base64").toString("utf8"); gh.sha += 1; gh.puts += 1;
+        return reply(gh.sha === 1 ? 201 : 200, { content: { sha: "s" + gh.sha } });
+      }
+      return reply(404, { message: "Not Found" });
+    }
+    return reply(200, { tag_name: "v" + C.PONTE.version + ".0.0-test", html_url: "https://github.com/LeoGen02/LaStataleOpen-App/releases" });
+  });
 }
 
 (async () => {
@@ -657,6 +678,183 @@ async function setup(context) {
     await expectText(auto, "Dati aggiornati");
     await auto.click('[data-tab="altro"]');
     await auto.click('[data-a="switch"][data-key="autoReturn"]');
+  });
+
+  await check(auto, "avvisi: tutti quelli da leggere (oltre 50), per argomento, cerca, segna letti un gruppo", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const topics = [
+      { component: "mod_forum", contexturlname: "Annunci", customdata: JSON.stringify({ cmid: 560, courseid: 101 }), url: "/mod/forum/discuss.php?d=" },
+      { component: "mod_assign", contexturlname: "E-tivity 1", url: "/mod/assign/view.php?id=555&x=" },
+      { component: "moodle", eventtype: "gradenotifications", contexturlname: "Sicurezza delle reti", url: "/grade/report/user/index.php?id=103&x=" },
+      { component: "moodle", contexturlname: "", url: "/user/profile.php?x=" }
+    ];
+    portal.st.notifications = Array.from({ length: 260 }, (_, i) => {
+      const t = topics[i % topics.length];
+      return { id: 5000 + i, subject: "Avviso numero " + i, timecreated: now - i * 300, read: i >= 172, contexturl: ORIGIN + t.url + i,
+        contexturlname: t.contexturlname, component: t.component, eventtype: t.eventtype || "", customdata: t.customdata };
+    });
+    await auto.click('[data-a="sync-now"]').catch(async () => { await auto.click('[data-tab="home"]'); await auto.click('[data-a="sync-now"]'); });
+    await auto.waitForURL((u) => u.toString().startsWith(ORIGIN + "/"), { timeout: 10000 });
+    await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 20000 });
+    await expectText(auto, "Dati aggiornati");
+    await auto.click('[data-tab="avvisi"]');
+    await auto.click('[data-tab="avvisi"]');
+    if ((await auto.locator(".tab .badge").innerText()).trim() !== "172") throw new Error("badge: " + (await auto.locator(".tab .badge").innerText()));
+    const stored = await auto.evaluate(() => JSON.parse(localStorage.getItem("so.ponte.snap")).notifs.list.filter((n) => !n.r).length);
+    if (stored !== 172) throw new Error("avvisi da leggere nei dati: " + stored);
+    await expectText(auto, "Per argomento");
+    await expectText(auto, "Fondamenti di cybersecurity");
+    await expectText(auto, "Sicurezza delle reti");
+    await shot(auto, "p10-avvisi-argomenti");
+    // Il gruppo del corso 101 (annunci + e-tivity): 86 da leggere.
+    const pill = await auto.locator('[data-a="notif-group"][data-k="c101"] .pill').innerText();
+    if (pill.trim() !== "86") throw new Error("da leggere nel corso 101: " + pill);
+    await auto.click('[data-a="notif-mode"][data-k="kind"]');
+    await expectText(auto, "Valutazioni");
+    await expectText(auto, "Forum e annunci");
+    await auto.click('[data-a="notif-mode"][data-k="topic"]');
+    await auto.fill("#q-notif", "numero 171");
+    await expectText(auto, "Avviso numero 171");
+    if (await auto.locator('[data-a="notif"][data-id="5170"]').count()) throw new Error("ricerca non filtra");
+    await auto.fill("#q-notif", "");
+    await auto.click('[data-a="read-group"][data-k="c103"]');
+    await expectText(auto, "avvisi segnati come letti");
+    await auto.waitForURL((u) => u.toString().startsWith(ORIGIN + "/"), { timeout: 30000 });
+    await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 20000 });
+    await expectText(auto, "arrivate al portale");
+    const unreadLeft = portal.st.notifications.filter((n) => !n.read).length;
+    if (unreadLeft !== 172 - 43) throw new Error("da leggere sul portale dopo il gruppo: " + unreadLeft);
+    // Il portale non dà le pagine oltre i primi 100: i dati arrivano lo stesso, gli avvisi già visti restano da leggere.
+    portal.st.notifFailFrom = 100;
+    await auto.click('[data-tab="home"]');
+    await auto.click('[data-a="sync-now"]');
+    await auto.waitForURL((u) => u.toString().startsWith(ORIGIN + "/"), { timeout: 10000 });
+    await auto.waitForURL((u) => u.toString().startsWith(APP), { timeout: 20000 });
+    await expectText(auto, "avvisi (in parte)");
+    portal.st.notifFailFrom = null;
+    const partial = await auto.evaluate(() => { const s = JSON.parse(localStorage.getItem("so.ponte.snap")); return [s.notifs.part, s.notifs.unread, s.notifs.list.filter((n) => !n.r).length]; });
+    if (partial.join() !== "1,129,129") throw new Error("lettura in parte (parziale, portale, elenco): " + partial);
+    if ((await auto.locator(".tab .badge").innerText()).trim() !== "129") throw new Error("badge dopo la lettura in parte");
+  });
+
+  await check(auto, "note: nuova nota da Home, salvata mentre scrivi, nota di un corso", async () => {
+    await auto.click('[data-tab="home"]');
+    await auto.click('[data-tab="home"]');
+    await expectText(auto, "Le mie note");
+    await auto.click('.content [data-a="note-new"]');
+    await auto.fill("#note-title", "Esame di crittografia");
+    await auto.fill("#note-body", "Ripassare RSA e firme.\nPortare la calcolatrice.");
+    await auto.waitForTimeout(700);
+    const stored = await auto.evaluate(() => JSON.parse(localStorage.getItem("so.notes")).notes[0]);
+    if (stored.title !== "Esame di crittografia" || !stored.body.includes("calcolatrice")) throw new Error("nota non salvata: " + JSON.stringify(stored));
+    await auto.click('[data-a="back"]');
+    await expectText(auto, "Esame di crittografia");
+    // Nota di un corso, dal corso.
+    await auto.click('[data-tab="corsi"]');
+    await auto.click('[data-tab="corsi"]');
+    await auto.click('.content [data-v="course"][data-id="101"]');
+    await auto.click('[data-a="push"][data-v="note"][data-id="101"]');
+    await auto.click('.content [data-a="note-new"]');
+    await auto.fill("#note-title", "Domande per il docente");
+    await auto.waitForTimeout(700);
+    const course = await auto.evaluate(() => JSON.parse(localStorage.getItem("so.notes")).notes.find((n) => n.title === "Domande per il docente").course);
+    if (course !== 101) throw new Error("corso della nota: " + course);
+    await auto.click('[data-a="back"]');
+    await expectText(auto, "Domande per il docente");
+    const t = await auto.locator("#device").innerText();
+    if (t.includes("Esame di crittografia")) throw new Error("nella lista del corso c'è una nota di altro");
+    await auto.click('[data-tab="home"]');
+  });
+
+  await check(auto, "note su GitHub: repository pubblico rifiutato, privato collegato, unione con un altro dispositivo, eliminazione", async () => {
+    await auto.click('[data-tab="altro"]');
+    await auto.click('[data-a="push"][data-v="notegit"]');
+    await expectText(auto, "Crea il repository privato");
+    gh.private = false;
+    await auto.fill("#git-token", gh.token);
+    await auto.click('[data-a="notes-link"]');
+    await expectText(auto, "Il repository è pubblico");
+    if (gh.file !== null) throw new Error("scritto in un repository pubblico");
+    gh.private = true;
+    await auto.click('[data-a="notes-link"]');
+    await expectText(auto, "Note sincronizzate con GitHub");
+    const saved = JSON.parse(gh.file);
+    if (saved.app !== "statale-open-note" || saved.notes.length !== 2 || !saved.notes.some((n) => n.title === "Esame di crittografia")) throw new Error("file su GitHub: " + gh.file.slice(0, 200));
+    const local = await auto.evaluate(() => localStorage.getItem("so.notes.github"));
+    if (!local.includes(gh.token) || JSON.stringify(await auto.evaluate(() => localStorage.getItem("so.ponte.snap"))).includes(gh.token)) throw new Error("chiave fuori posto");
+    // Un altro dispositivo aggiunge una nota e ne modifica una.
+    const other = JSON.parse(gh.file);
+    const later = Date.now();
+    other.notes.push({ id: "altroDispositivo1", title: "Scritta sull'iPad", body: "ciao", course: null, created: later, updated: later });
+    other.notes.find((n) => n.title === "Esame di crittografia").body = "Cambiata altrove";
+    other.notes.find((n) => n.title === "Esame di crittografia").updated = later;
+    gh.file = JSON.stringify(other); gh.sha += 1;
+    await auto.click('[data-a="notes-sync"]');
+    await auto.waitForFunction(() => (localStorage.getItem("so.notes") || "").includes("Scritta sull'iPad"), null, { timeout: 8000 });
+    const merged = await auto.evaluate(() => JSON.parse(localStorage.getItem("so.notes")).notes);
+    if (!merged.some((n) => n.title === "Scritta sull'iPad") || merged.find((n) => n.title === "Esame di crittografia").body !== "Cambiata altrove") throw new Error("unione: " + JSON.stringify(merged).slice(0, 300));
+    // Eliminazione: arriva anche su GitHub.
+    await auto.click('[data-tab="home"]');
+    await auto.click('[data-a="note-open"]');
+    await auto.click('[data-a="note-delete"]');
+    await auto.click('.alert button.destructive');
+    await expectText(auto, "Nota eliminata");
+    await auto.waitForTimeout(5500);
+    const after = JSON.parse(gh.file).notes;
+    if (after.filter((n) => n.deleted).length !== 1) {
+      const loc = await auto.evaluate(() => [localStorage.getItem("so.notes"), localStorage.getItem("so.notes.github")]);
+      throw new Error("eliminazione non arrivata su GitHub (" + gh.puts + " scritture): " + loc.join(" | ").slice(0, 900));
+    }
+    await shot(auto, "p11-note");
+  });
+
+  await check(auto, "note su GitHub: la nota aperta si aggiorna, le modifiche durante l'invio arrivano, conflitti continui segnalati", async () => {
+    // Come al ritorno in primo piano dopo più di un minuto.
+    const comeBack = () => auto.evaluate(() => {
+      const g = JSON.parse(localStorage.getItem("so.notes.github")); g.syncedAt = 0; localStorage.setItem("so.notes.github", JSON.stringify(g));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const elsewhere = (body) => {
+      const f = JSON.parse(gh.file), n = f.notes.find((x) => x.id === "altroDispositivo1");
+      n.body = body; n.updated = Date.now();
+      gh.file = JSON.stringify(f); gh.sha += 1;
+    };
+    await auto.click('[data-tab="home"]');
+    await auto.click('[data-a="note-open"]:has-text("Scritta sull")');
+    await auto.waitForSelector("#note-body");
+    // Cambiata altrove mentre è aperta (senza scrivere): si vede la versione nuova.
+    elsewhere("Aggiornata sul portatile");
+    await comeBack();
+    await auto.waitForFunction(() => document.querySelector("#note-body") && document.querySelector("#note-body").value === "Aggiornata sul portatile", null, { timeout: 8000 });
+    // Cambiata altrove mentre scrivi qui: il campo si aggiorna, il cursore resta, e la riga aggiunta si somma.
+    await auto.focus("#note-body");
+    elsewhere("Seconda dal portatile");
+    await comeBack();
+    await auto.waitForFunction(() => document.querySelector("#note-body").value === "Seconda dal portatile", null, { timeout: 8000 });
+    if (await auto.evaluate(() => document.activeElement.id) !== "note-body") throw new Error("campo non più attivo");
+    await auto.press("#note-body", "End");
+    await auto.keyboard.type(" +riga");
+    await auto.waitForFunction(() => (localStorage.getItem("so.notes") || "").includes("Seconda dal portatile +riga"), null, { timeout: 5000 });
+    for (let i = 0; i < 40 && !gh.file.includes("Seconda dal portatile +riga"); i++) await auto.waitForTimeout(250);
+    if (!gh.file.includes("Seconda dal portatile +riga")) throw new Error("modifica non arrivata su GitHub");
+    // Una modifica mentre la scrittura su GitHub è in corso: arriva con la sincronizzazione seguente.
+    gh.putDelay = 5000;
+    await auto.keyboard.type(" A");
+    for (let i = 0; i < 40 && !gh.inflight; i++) await auto.waitForTimeout(250);
+    if (!gh.inflight) throw new Error("scrittura lenta non partita");
+    await auto.keyboard.type(" B");
+    for (let i = 0; i < 80 && !gh.file.includes("+riga A B"); i++) await auto.waitForTimeout(250);
+    gh.putDelay = 0;
+    if (!gh.file.includes("+riga A B")) throw new Error("modifica fatta durante l'invio non arrivata: " + JSON.parse(gh.file).notes.find((x) => x.id === "altroDispositivo1").body);
+    // GitHub rifiuta ogni scrittura (il file cambia di continuo): niente «sincronizzate», errore e nuovo tentativo.
+    gh.conflict = true;
+    await auto.keyboard.type(" C");
+    await auto.waitForFunction(() => /cambiato più volte/.test((document.querySelector("#note-sync") || {}).textContent || ""), null, { timeout: 15000 });
+    gh.conflict = false;
+    await comeBack();
+    for (let i = 0; i < 40 && !gh.file.includes("A B C"); i++) await auto.waitForTimeout(250);
+    if (!gh.file.includes("A B C")) throw new Error("nessun nuovo tentativo dopo i conflitti");
+    await auto.evaluate(() => document.activeElement && document.activeElement.blur());
   });
 
   portal = createPortal();

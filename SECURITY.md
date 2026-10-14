@@ -21,7 +21,7 @@ la correzione verrà pubblicata in una nuova versione e indicata nel [CHANGELOG]
 
 ## Ponte con il portale (app web)
 
-Il ponte (`docs/ponte/ponte-1.js`) gira sulla pagina del portale con la tua sessione, quindi è progettato per fare il minimo:
+Il ponte (`docs/ponte/ponte-2.js`; `ponte-1.js` resta pubblicato per i preferiti e gli script già installati) gira sulla pagina del portale con la tua sessione, quindi è progettato per fare il minimo:
 
 - **Solo il codice che hai installato.** Il preferito carica il file con `integrity="sha384-…"` e `crossorigin`: se il file pubblicato cambia
   anche di un byte, il browser non lo esegue. I file `ponte-N.js` pubblicati non si modificano mai (la CI lo verifica e controlla anche
@@ -34,14 +34,15 @@ Il ponte (`docs/ponte/ponte-1.js`) gira sulla pagina del portale con la tua sess
 - **Nell'app** i dati ricevuti vengono ricontrollati: solo testo, numeri validi, lunghezze limitate e indirizzi del solo portale;
   la pagina ha una Content-Security-Policy che vieta script esterni. Un link `#ponte=…` non richiesto dall'app chiede conferma prima di essere importato.
 
-Per verificare a mano: `openssl dgst -sha384 -binary docs/ponte/ponte-1.js | base64` deve dare l'impronta del preferito.
+Per verificare a mano: `openssl dgst -sha384 -binary docs/ponte/ponte-2.js | base64` deve dare l'impronta del preferito.
+Il ponte 2 è il ponte 1 con la lettura di tutti gli avvisi (a pagine, fino a 1000) e del loro tipo e corso: pannello, conferme e consegna sono identici (lo verifica un test).
 
 ### Ponte automatico (estensione Userscripts)
 
-`docs/ponte/statale-open-3.user.js` (e le versioni 1 e 2, ancora pubblicate per chi le ha installate) fa le veci del tocco sul preferito
+`docs/ponte/statale-open-4.user.js` (e le versioni da 1 a 3, ancora pubblicate per chi le ha installate) fa le veci del tocco sul preferito
 e nient'altro: `@match` solo sul portale, sulla pagina dell'app e (dalla versione 2) sulla pagina di login di Ateneo di La Statale Open,
 nessuna richiesta di rete, nessun `@require`/`@updateURL` (non si aggiorna da solo), immutabile come il ponte (impronta in `PONTE.known`,
-controllata dalla CI). Sul portale carica `ponte/ponte-1.js` con la stessa `integrity` del preferito solo se l'indirizzo contiene
+controllata dalla CI). Sul portale carica il ponte (`ponte/ponte-2.js` dalla versione 4) con la stessa `integrity` del preferito solo se l'indirizzo contiene
 una richiesta dell'app; un link costruito ad arte può al massimo far leggere i tuoi dati e consegnarli alla tua app (che chiede conferma
 se non li aveva chiesti), mentre le scritture restano da confermare nel pannello.
 
@@ -54,7 +55,7 @@ Un sito esterno che apre la pagina di login e poi il portale può al massimo far
 Invio automatico (versione 3): l'app segna con `"ok":1` le richieste le cui modifiche hai già confermato nell'app («Spunta come completato»,
 «Segna come letto» con *Invia subito le modifiche* acceso). Il ponte ignora quel campo; lo script, solo per una richiesta che l'app gli ha
 consegnato sulla propria pagina e che contiene modifiche, `"ok":1` e l'account dei dati (`"u"`, uguale all'utente entrato sul portale),
-tocca nel pannello del ponte (`ponte-1.js`, immutabile) il pulsante principale soltanto se il suo testo è esattamente «Applica e aggiorna».
+tocca nel pannello del ponte (immutabile) il pulsante principale soltanto se il suo testo è esattamente «Applica e aggiorna».
 Se sul portale è entrato un altro account, il pannello resta da confermare a mano. Un link costruito da altri, anche con `"ok":1`, non viene registrato
 e non avvia nulla; la richiesta per il ritorno dopo il login non contiene mai modifiche. Il preferito chiede sempre la conferma.
 

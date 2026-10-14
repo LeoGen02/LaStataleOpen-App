@@ -35,6 +35,14 @@ e la descrizione dell'aggiornamento in AltStore e SideStore.
   (*Altro → Ponte con il portale → Torna all'app dopo il login sul portale*, acceso di serie). La versione 1 resta pubblicata;
   l'app invita ad aggiornarla.
 
+- **Tutti gli avvisi** (ponte `ponte/ponte-2.js` e script `ponte/statale-open-4.user.js`): il ponte legge tutti gli avvisi da leggere,
+  a pagine di 50 fino a 1000, con il tipo e il corso; prima l'app ne mostrava al massimo 50 anche se il numero era più alto. Gli avvisi già
+  visti restano tra un aggiornamento e l'altro. Se una pagina di avvisi non arriva, il resto dei dati arriva lo stesso e gli avvisi
+  già visti restano com'erano. Ponte 1 e script 1-3 restano pubblicati; l'app invita ad aggiornare.
+- **Avvisi per argomento**: per corso, per tipo o per data, con «Solo da leggere», ricerca, gruppi richiudibili e «Segna come letti»
+  per gruppo (le modifiche partono in più giri se sono più di 100).
+- **Le mie note**: note personali (anche per corso) salvate nell'app e, se colleghi GitHub, in un tuo repository privato (`note.json`),
+  con unione tra dispositivi e cancellazioni che arrivano ovunque; la nota aperta si aggiorna quando arriva una versione più recente.
 - **Spunta come completato** sotto ogni attività del corso, come sul portale (sparisce per le attività a completamento automatico).
 - **Invio automatico delle modifiche** (script `ponte/statale-open-3.user.js`): pochi secondi dopo una modifica, quando non stai toccando
   nulla, l'app va al portale, applica le modifiche già confermate nell'app senza chiederlo di nuovo, rilegge i dati e torna alla stessa
